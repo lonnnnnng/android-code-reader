@@ -1,0 +1,23 @@
+{
+  "name": "Ignore Rules",
+  "scopeName": "source.ignore",
+  "patterns": [
+    {
+      "begin": "^\\s*#",
+      "end": "$",
+      "name": "comment.line.number-sign.ignore"
+    },
+    {
+      "match": "^\\s*!",
+      "name": "keyword.operator.negation.ignore"
+    },
+    {
+      "match": "\\*\\*|\\*|\\?",
+      "name": "keyword.operator.wildcard.ignore"
+    },
+    {
+      "match": "/$",
+      "name": "punctuation.definition.directory.ignore"
+    }
+  ]
+}

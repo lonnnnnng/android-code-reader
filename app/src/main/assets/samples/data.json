@@ -1,0 +1,6 @@
+{
+  "name": "code-reader",
+  "version": 1,
+  "features": ["highlight", "markdown", "zip", "git"],
+  "enabled": true
+}

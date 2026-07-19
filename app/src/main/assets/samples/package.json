@@ -1,0 +1,7 @@
+{
+  "name": "node-sample",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  }
+}

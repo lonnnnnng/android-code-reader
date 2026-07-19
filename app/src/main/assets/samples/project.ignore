@@ -1,0 +1,4 @@
+# Build products are generated locally.
+build/
+*.apk
+!app-debug.apk

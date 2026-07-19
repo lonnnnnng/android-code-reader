@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+package reader.v1;
+
+message OpenFileRequest {
+  string path = 1;
+}

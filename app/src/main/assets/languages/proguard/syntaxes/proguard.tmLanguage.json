@@ -1,0 +1,31 @@
+{
+  "name": "ProGuard and R8",
+  "scopeName": "source.proguard",
+  "patterns": [
+    {
+      "begin": "#",
+      "end": "$",
+      "name": "comment.line.number-sign.proguard"
+    },
+    {
+      "match": "^\\s*-[a-z][a-z0-9,-]*",
+      "name": "keyword.control.directive.proguard"
+    },
+    {
+      "match": "\\b(class|interface|enum|extends|implements)\\b",
+      "name": "storage.type.proguard"
+    },
+    {
+      "match": "\\b(public|protected|private|abstract|final|static|native|synchronized|transient|volatile)\\b",
+      "name": "storage.modifier.proguard"
+    },
+    {
+      "match": "\\b(boolean|byte|char|short|int|long|float|double|void)\\b",
+      "name": "storage.type.primitive.proguard"
+    },
+    {
+      "match": "\\*\\*|\\*|\\?",
+      "name": "keyword.operator.wildcard.proguard"
+    }
+  ]
+}

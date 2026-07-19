@@ -1,0 +1,8 @@
+type SourceFile {
+  path: String!
+  language: String
+}
+
+type Query {
+  file(path: String!): SourceFile
+}

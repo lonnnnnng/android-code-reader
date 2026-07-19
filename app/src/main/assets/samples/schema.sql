@@ -1,0 +1,7 @@
+CREATE TABLE users (
+    id BIGINT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+SELECT id, name FROM users WHERE created_at >= CURRENT_DATE;

@@ -1,0 +1,27 @@
+{
+  "name": "Go Module",
+  "scopeName": "source.go.mod",
+  "patterns": [
+    {
+      "begin": "//",
+      "end": "$",
+      "name": "comment.line.double-slash.gomod"
+    },
+    {
+      "match": "\\b(module|go|toolchain|require|replace|exclude|retract|use)\\b",
+      "name": "keyword.control.gomod"
+    },
+    {
+      "match": "=>",
+      "name": "keyword.operator.arrow.gomod"
+    },
+    {
+      "match": "\\bv\\d+(?:\\.\\d+){1,2}(?:[-+][0-9A-Za-z.-]+)?\\b",
+      "name": "constant.numeric.version.gomod"
+    },
+    {
+      "match": "(?:[A-Za-z0-9._~-]+/)+[A-Za-z0-9._~/-]+",
+      "name": "entity.name.namespace.module.gomod"
+    }
+  ]
+}

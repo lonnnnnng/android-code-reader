@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:">
+  <link rel="stylesheet" href="vendor/katex/katex.min.css">
+  <style>
+    :root {
+      color-scheme: light;
+      --background: #ffffff;
+      --surface: #f6f8fa;
+      --surface-strong: #e9edf3;
+      --text: #1f2328;
+      --muted: #59636e;
+      --border: #c7cdd5;
+      --link: #005cc5;
+      --accent: #0033b3;
+      --quote: #7a1fa2;
+      --code: #24292f;
+      --keyword: #0033b3;
+      --string: #067d17;
+      --number: #1750eb;
+      --function: #c41a16;
+      --type: #7a1fa2;
+      --comment: #59636e;
+      --attribute: #a34a00;
+    }
+
+    body.dark {
+      color-scheme: dark;
+      --background: #242424;
+      --surface: #2b2b2b;
+      --surface-strong: #343434;
+      --text: #d4d4d4;
+      --muted: #9a9a9a;
+      --border: #545454;
+      --link: #9cdcfe;
+      --accent: #9cdcfe;
+      --quote: #c586c0;
+      --code: #d4d4d4;
+      --keyword: #cc8242;
+      --string: #6a8759;
+      --number: #7a9ec2;
+      --function: #ffc66d;
+      --type: #9cdcfe;
+      --comment: #808080;
+      --attribute: #d19a66;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--background);
+      color: var(--text);
+    }
+
+    body {
+      padding: 18px 16px 56px;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: __FONT_SIZE__px;
+      line-height: 1.62;
+      overflow-wrap: break-word;
+    }
+
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+    }
+
+    h1, h2, h3, h4, h5, h6 {
+      margin: 1.35em 0 0.55em;
+      line-height: 1.28;
+      color: var(--text);
+    }
+
+    h1:first-child,
+    h2:first-child {
+      margin-top: 0;
+    }
+
+    h1, h2 {
+      padding-bottom: 0.3em;
+      border-bottom: 1px solid var(--border);
+    }
+
+    h1 { font-size: 1.85rem; }
+    h2 { font-size: 1.45rem; }
+    h3 { font-size: 1.2rem; }
+
+    p, ul, ol, blockquote, pre, table, .diagram-shell {
+      margin: 0.8em 0 1em;
+    }
+
+    ul, ol {
+      padding-left: 1.6em;
+    }
+
+    li + li {
+      margin-top: 0.3em;
+    }
+
+    a {
+      color: var(--link);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 0.16em;
+    }
+
+    blockquote {
+      margin-left: 0;
+      padding: 0.35em 1em;
+      border-left: 4px solid var(--quote);
+      color: var(--muted);
+      background: var(--surface);
+    }
+
+    hr {
+      height: 1px;
+      margin: 1.5em 0;
+      border: 0;
+      background: var(--border);
+    }
+
+    code {
+      padding: 0.14em 0.35em;
+      border-radius: 4px;
+      background: var(--surface-strong);
+      color: var(--code);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.9em;
+    }
+
+    pre {
+      position: relative;
+      max-width: 100%;
+      padding: 14px 16px;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+      -webkit-overflow-scrolling: touch;
+    }
+
+    pre code {
+      display: block;
+      min-width: max-content;
+      padding: 0;
+      border-radius: 0;
+      background: transparent;
+      color: var(--code);
+      font-size: 13px;
+      line-height: 1.55;
+      white-space: pre;
+    }
+
+    .copy-code {
+      position: sticky;
+      top: 6px;
+      float: right;
+      z-index: 1;
+      min-width: 34px;
+      min-height: 30px;
+      margin: -6px -8px 4px 8px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--surface-strong);
+      color: var(--text);
+      font: inherit;
+    }
+
+    table {
+      display: block;
+      width: max-content;
+      max-width: 100%;
+      overflow-x: auto;
+      border-collapse: collapse;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    th, td {
+      min-width: 92px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      text-align: left;
+    }
+
+    th {
+      background: var(--surface-strong);
+      font-weight: 700;
+    }
+
+    tr:nth-child(even) td {
+      background: var(--surface);
+    }
+
+    img, svg {
+      max-width: 100%;
+      height: auto;
+    }
+
+    .task-list-item {
+      list-style: none;
+      margin-left: -1.35em;
+    }
+
+    .task-list-item input {
+      width: 1.05em;
+      height: 1.05em;
+      margin-right: 0.5em;
+      accent-color: var(--accent);
+      vertical-align: -0.12em;
+    }
+
+    .footnotes {
+      margin-top: 2em;
+      padding-top: 0.75em;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.9em;
+    }
+
+    .diagram-shell {
+      padding: 12px;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .mermaid {
+      width: 100%;
+      text-align: center;
+    }
+
+    .math-block {
+      max-width: 100%;
+      padding: 8px 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      text-align: center;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .katex-display {
+      max-width: 100%;
+      padding: 8px 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      color: var(--text);
+    }
+
+    .render-error {
+      padding: 12px;
+      border: 1px solid #b00020;
+      border-radius: 6px;
+      background: #fff0f2;
+      color: #8b0018;
+      white-space: pre-wrap;
+    }
+
+    body.dark .render-error {
+      background: #4a1820;
+      color: #ffd9df;
+    }
+
+    .hljs-comment,
+    .hljs-quote { color: var(--comment); font-style: italic; }
+    .hljs-keyword,
+    .hljs-selector-tag,
+    .hljs-literal,
+    .hljs-section,
+    .hljs-link { color: var(--keyword); font-weight: 700; }
+    .hljs-string,
+    .hljs-regexp,
+    .hljs-symbol,
+    .hljs-bullet { color: var(--string); }
+    .hljs-number,
+    .hljs-meta,
+    .hljs-built_in { color: var(--number); }
+    .hljs-title,
+    .hljs-title.function_,
+    .hljs-function .hljs-title { color: var(--function); font-weight: 700; }
+    .hljs-title.class_,
+    .hljs-type,
+    .hljs-class .hljs-title { color: var(--type); font-weight: 700; }
+    .hljs-attr,
+    .hljs-attribute,
+    .hljs-selector-attr,
+    .hljs-selector-class { color: var(--attribute); }
+    .hljs-variable,
+    .hljs-template-variable,
+    .hljs-params { color: var(--quote); }
+    .hljs-tag,
+    .hljs-name { color: var(--keyword); }
+  </style>
+</head>
+<body class="__BODY_CLASS__">
+  <main id="content"></main>
+
+  <script src="vendor/markdown-it.min.js"></script>
+  <script src="vendor/markdown-it-task-lists.min.js"></script>
+  <script src="vendor/markdown-it-footnote.min.js"></script>
+  <script src="vendor/highlight.min.js"></script>
+  <script src="vendor/katex/katex.min.js"></script>
+  <script src="vendor/katex/contrib/auto-render.min.js"></script>
+  <script src="vendor/mermaid.min.js"></script>
+  <script>
+    const darkTheme = __DARK_THEME__;
+    const markdownBase64 = "__MARKDOWN_BASE64__";
+
+    function decodeBase64Utf8(value) {
+      const binary = atob(value);
+      const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+      return new TextDecoder("utf-8").decode(bytes);
+    }
+
+    function highlightedCode(code, language) {
+      const normalized = (language || "").trim().toLowerCase();
+      if (normalized && hljs.getLanguage(normalized)) {
+        return hljs.highlight(code, { language: normalized, ignoreIllegals: true }).value;
+      }
+      return hljs.highlightAuto(code).value;
+    }
+
+    function installHeadingAnchors(container) {
+      container.querySelectorAll("h1, h2, h3, h4, h5, h6").forEach(function(heading, index) {
+        heading.id = "heading-" + index;
+      });
+    }
+
+    function installCodeCopyButtons(container) {
+      container.querySelectorAll("pre").forEach(function(pre) {
+        const code = pre.querySelector("code");
+        if (!code) return;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "copy-code";
+        button.textContent = "复制";
+        button.addEventListener("click", function() {
+          if (window.CodeReader) window.CodeReader.copyText(code.textContent || "");
+        });
+        pre.insertBefore(button, code);
+      });
+    }
+
+    function scrollToHeading(index) {
+      const heading = document.getElementById("heading-" + index);
+      if (heading) heading.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function extractMathBlocks(markdown) {
+      const blocks = [];
+      const source = markdown.replace(/^\s*\$\$\s*$\n([\s\S]*?)\n^\s*\$\$\s*$/gm, function(_, formula) {
+        const marker = "CODE_READER_MATH_BLOCK_" + blocks.length + "_END";
+        blocks.push({ marker: marker, formula: formula });
+        return "\n\n" + marker + "\n\n";
+      });
+      return { source: source, blocks: blocks };
+    }
+
+    function renderExtractedMathBlocks(container, blocks) {
+      if (!blocks.length) return;
+      const textNodes = [];
+      const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) textNodes.push(walker.currentNode);
+
+      blocks.forEach(function(block) {
+        const textNode = textNodes.find(function(node) {
+          return node.nodeValue.trim() === block.marker;
+        });
+        if (!textNode) throw new Error("找不到块级公式占位符：" + block.marker);
+
+        const host = document.createElement("div");
+        host.className = "math-block";
+        katex.render(block.formula, host, {
+          displayMode: true,
+          throwOnError: false
+        });
+
+        const parent = textNode.parentElement;
+        if (parent && parent.tagName === "P" && parent.textContent.trim() === block.marker) {
+          parent.replaceWith(host);
+        } else {
+          textNode.replaceWith(host);
+        }
+      });
+    }
+
+    async function renderMarkdown() {
+      const content = document.getElementById("content");
+      try {
+        const markdown = decodeBase64Utf8(markdownBase64);
+        const extractedMath = extractMathBlocks(markdown);
+        const markdownRenderer = window.markdownit({
+          html: false,
+          linkify: true,
+          typographer: true,
+          highlight: highlightedCode
+        });
+        markdownRenderer.use(window.markdownitTaskLists, { enabled: true, label: true });
+        markdownRenderer.use(window.markdownitFootnote);
+
+        const defaultFence = markdownRenderer.renderer.rules.fence;
+        markdownRenderer.renderer.rules.fence = function(tokens, index, options, environment, renderer) {
+          const token = tokens[index];
+          const language = token.info.trim().split(/\s+/)[0].toLowerCase();
+          if (language === "mermaid") {
+            return '<div class="diagram-shell"><div class="mermaid">' +
+              markdownRenderer.utils.escapeHtml(token.content) +
+              '</div></div>';
+          }
+          return defaultFence(tokens, index, options, environment, renderer);
+        };
+
+        content.innerHTML = markdownRenderer.render(extractedMath.source);
+        installHeadingAnchors(content);
+        installCodeCopyButtons(content);
+        renderExtractedMathBlocks(content, extractedMath.blocks);
+
+        renderMathInElement(content, {
+          delimiters: [
+            { left: "$$", right: "$$", display: true },
+            { left: "\\[", right: "\\]", display: true },
+            { left: "\\(", right: "\\)", display: false },
+            { left: "$", right: "$", display: false }
+          ],
+          ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code"],
+          throwOnError: false
+        });
+
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: "strict",
+          theme: darkTheme ? "dark" : "default",
+          flowchart: { htmlLabels: false, useMaxWidth: true }
+        });
+        await mermaid.run({ querySelector: ".mermaid", suppressErrors: false });
+        document.documentElement.dataset.markdownReady = "true";
+      } catch (error) {
+        content.insertAdjacentHTML(
+          "beforeend",
+          '<div class="render-error">Markdown 渲染失败：' +
+            String(error && error.message ? error.message : error) +
+            '</div>'
+        );
+        document.documentElement.dataset.markdownReady = "error";
+      }
+    }
+
+    renderMarkdown();
+  </script>
+</body>
+</html>

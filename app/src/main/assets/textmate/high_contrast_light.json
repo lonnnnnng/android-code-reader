@@ -1,0 +1,168 @@
+{
+  "name": "high_contrast_light",
+  "settings": [
+    {
+      "settings": {
+        "background": "#FFFFFF",
+        "foreground": "#1F2328",
+        "caret": "#111111",
+        "lineHighlight": "#EAF2FF",
+        "selection": "#B8D7FF",
+        "inactiveSelection": "#DCEBFF",
+        "highlightedDelimitersForeground": "#C41A16"
+      }
+    },
+    {
+      "name": "注释",
+      "scope": "comment, punctuation.definition.comment",
+      "settings": {
+        "foreground": "#59636E",
+        "fontStyle": "italic"
+      }
+    },
+    {
+      "name": "关键字与存储修饰符",
+      "scope": "keyword, storage, storage.type, storage.modifier, keyword.operator.new, keyword.operator.delete, keyword.operator.expression",
+      "settings": {
+        "foreground": "#0033B3",
+        "fontStyle": "bold"
+      }
+    },
+    {
+      "name": "运算符",
+      "scope": "keyword.operator, punctuation.separator, punctuation.terminator",
+      "settings": {
+        "foreground": "#2F3437"
+      }
+    },
+    {
+      "name": "类型与类名",
+      "scope": "entity.name.type, entity.name.type.class, entity.other.inherited-class, support.type, support.type.primitive, meta.return.type, meta.type.annotation",
+      "settings": {
+        "foreground": "#7A1FA2",
+        "fontStyle": "bold"
+      }
+    },
+    {
+      "name": "函数与方法",
+      "scope": "entity.name.function, support.function, meta.function-call, variable.function",
+      "settings": {
+        "foreground": "#C41A16",
+        "fontStyle": "bold"
+      }
+    },
+    {
+      "name": "字符串",
+      "scope": "string, string.quoted, string.template, punctuation.definition.string",
+      "settings": {
+        "foreground": "#067D17"
+      }
+    },
+    {
+      "name": "数字与语言常量",
+      "scope": "constant.numeric, constant.language, constant.character, constant.other",
+      "settings": {
+        "foreground": "#1750EB"
+      }
+    },
+    {
+      "name": "变量与对象属性",
+      "scope": "variable, variable.other, variable.property, variable.other.property, variable.object.property, support.variable.property, meta.object-literal.key",
+      "settings": {
+        "foreground": "#871094"
+      }
+    },
+    {
+      "name": "参数",
+      "scope": "variable.parameter, meta.function.parameters",
+      "settings": {
+        "foreground": "#5B3A00"
+      }
+    },
+    {
+      "name": "注解与装饰器",
+      "scope": "storage.type.annotation, meta.annotation, entity.name.function.decorator, punctuation.definition.annotation",
+      "settings": {
+        "foreground": "#9B4D00",
+        "fontStyle": "bold"
+      }
+    },
+    {
+      "name": "HTML XML 标签",
+      "scope": "entity.name.tag, punctuation.definition.tag, punctuation.definition.tag.html, punctuation.definition.tag.begin, punctuation.definition.tag.end",
+      "settings": {
+        "foreground": "#0033B3",
+        "fontStyle": "bold"
+      }
+    },
+    {
+      "name": "HTML XML 属性",
+      "scope": "entity.other.attribute-name, meta.tag entity.other.attribute-name",
+      "settings": {
+        "foreground": "#174AD4"
+      }
+    },
+    {
+      "name": "CSS 选择器",
+      "scope": "meta.selector, entity.name.tag.css, entity.other.attribute-name.class.css, entity.other.attribute-name.id.css",
+      "settings": {
+        "foreground": "#7A1FA2",
+        "fontStyle": "bold"
+      }
+    },
+    {
+      "name": "CSS 属性",
+      "scope": "support.type.property-name.css, meta.property-name.css",
+      "settings": {
+        "foreground": "#A34A00"
+      }
+    },
+    {
+      "name": "JSON YAML TOML 键",
+      "scope": "support.type.property-name.json, string.json support.type.property-name, entity.name.tag.yaml, entity.name.tag.toml, meta.mapping.key",
+      "settings": {
+        "foreground": "#174AD4",
+        "fontStyle": "bold"
+      }
+    },
+    {
+      "name": "正则表达式",
+      "scope": "string.regexp, constant.regexp, regex",
+      "settings": {
+        "foreground": "#B33A00"
+      }
+    },
+    {
+      "name": "Markdown 标题",
+      "scope": "markup.heading, entity.name.section.markdown",
+      "settings": {
+        "foreground": "#0033B3",
+        "fontStyle": "bold"
+      }
+    },
+    {
+      "name": "Markdown 强调",
+      "scope": "markup.bold",
+      "settings": {
+        "foreground": "#7A1FA2",
+        "fontStyle": "bold"
+      }
+    },
+    {
+      "name": "Markdown 链接",
+      "scope": "markup.underline.link, string.other.link, meta.link",
+      "settings": {
+        "foreground": "#005CC5"
+      }
+    },
+    {
+      "name": "无效语法",
+      "scope": "invalid, invalid.illegal",
+      "settings": {
+        "foreground": "#FFFFFF",
+        "background": "#B00020",
+        "fontStyle": "bold"
+      }
+    }
+  ]
+}

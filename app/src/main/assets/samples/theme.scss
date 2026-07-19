@@ -1,0 +1,6 @@
+$accent: #0b6bcb;
+
+.toolbar {
+  color: $accent;
+  &:hover { color: darken($accent, 10%); }
+}
