@@ -8,10 +8,13 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -25,8 +28,13 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
@@ -66,6 +74,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -89,12 +98,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
@@ -477,38 +490,52 @@ private fun ReaderScreen(
     var showGotoLine by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var pendingCloseTabId by remember { mutableStateOf<String?>(null) }
+    val projectPath = state.projectEntries.firstOrNull { it.source.id == document.id }?.path
+    val documentStatus = when {
+        document.largeFile && document.totalBytes >= 0 -> "分段读取 · ${formatBytes(document.totalBytes)}"
+        document.largeFile -> "分段读取 · 大小未知"
+        state.dirty -> "未保存"
+        state.editable -> "编辑中"
+        else -> "只读"
+    }
+    val displayPath = projectPath?.takeUnless { it == document.name }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = { Text(document.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            navigationIcon = {
-                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回") }
-            },
-            actions = {
-                IconButton(onClick = { searchVisible = !searchVisible }) {
-                    Icon(Icons.Outlined.Search, contentDescription = "文件内搜索")
+        Surface(color = MaterialTheme.colorScheme.surface) {
+            Row(
+                modifier = Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
                 }
-                if (state.projectEntries.isNotEmpty()) {
-                    IconButton(onClick = { showFileSwitcher = true }) {
-                        Icon(Icons.Outlined.FolderOpen, contentDescription = "快速切换文件")
-                    }
-                }
-                if (document.fileType.markdown) {
-                    IconButton(onClick = onTogglePreview) {
-                        Icon(
-                            if (state.markdownPreview) Icons.Outlined.Code else Icons.Outlined.Visibility,
-                            contentDescription = if (state.markdownPreview) "查看源码" else "预览 Markdown",
-                        )
-                    }
-                }
-                IconButton(onClick = { onEditable(!state.editable) }) {
-                    Icon(
-                        if (state.editable) Icons.Outlined.Lock else Icons.Outlined.Edit,
-                        contentDescription = if (state.editable) "退出编辑" else "编辑",
+                Column(modifier = Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                    Text(
+                        text = document.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val metaColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f)
+                        Text(document.fileType.displayName, style = MaterialTheme.typography.bodySmall, color = metaColor)
+                        Text(" · ", style = MaterialTheme.typography.bodySmall, color = metaColor)
+                        Text(documentStatus, style = MaterialTheme.typography.bodySmall, color = metaColor)
+                        if (displayPath != null) {
+                            Text(
+                                text = " · $displayPath",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = metaColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
                 }
-                if (state.editable && state.dirty) {
-                    IconButton(onClick = onSave) { Icon(Icons.Outlined.Save, contentDescription = "保存") }
+                IconButton(onClick = { searchVisible = !searchVisible }) {
+                    Icon(Icons.Outlined.Search, contentDescription = if (searchVisible) "关闭文件内搜索" else "文件内搜索")
                 }
                 Box {
                     IconButton(onClick = { menuExpanded = true }) {
@@ -543,10 +570,8 @@ private fun ReaderScreen(
                         )
                     }
                 }
-            },
-            windowInsets = WindowInsets(),
-        )
-        HorizontalDivider()
+            }
+        }
 
         if (state.tabs.size > 1) {
             ReaderTabs(
@@ -556,7 +581,6 @@ private fun ReaderScreen(
                     if (tab.dirty) pendingCloseTabId = tab.document.id else onCloseTab(tab.document.id)
                 },
             )
-            HorizontalDivider()
         }
 
         if (searchVisible) {
@@ -565,24 +589,19 @@ private fun ReaderScreen(
                 onTextChanged = { fileSearchText = it },
                 onPrevious = { onSearchInFile(fileSearchText, false) },
                 onNext = { onSearchInFile(fileSearchText, true) },
+                onClose = { searchVisible = false },
             )
-            HorizontalDivider()
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(document.fileType.displayName, style = MaterialTheme.typography.labelMedium)
-            Text(
-                when {
-                    document.largeFile && document.totalBytes >= 0 -> "分段读取 · ${formatBytes(document.totalBytes)}"
-                    document.largeFile -> "分段读取 · 大小未知"
-                    state.dirty -> "未保存"
-                    state.editable -> "编辑"
-                    else -> "只读"
-                },
-                style = MaterialTheme.typography.labelMedium,
+        } else {
+            ReaderActionBar(
+                hasProject = state.projectEntries.isNotEmpty(),
+                markdown = document.fileType.markdown,
+                markdownPreview = state.markdownPreview,
+                editable = state.editable,
+                dirty = state.dirty,
+                onOpenFileSwitcher = { showFileSwitcher = true },
+                onTogglePreview = onTogglePreview,
+                onToggleEditable = { onEditable(!state.editable) },
+                onSave = onSave,
             )
         }
         HorizontalDivider()
@@ -670,26 +689,66 @@ private fun ReaderScreen(
 
 @Composable
 private fun ReaderTabs(state: ReaderUiState, onSwitch: (String) -> Unit, onClose: (ReaderTabState) -> Unit) {
-    LazyRow(
-        modifier = Modifier.fillMaxWidth().height(46.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        items(state.tabs, key = { it.document.id }) { tab ->
-            val active = tab.document.id == state.activeTabId
-            Surface(
-                color = if (active) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
-                shape = RoundedCornerShape(6.dp),
-                modifier = Modifier.padding(vertical = 5.dp).clickable { onSwitch(tab.document.id) },
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 10.dp)) {
-                    Text(
-                        text = (if (tab.dirty) "*" else "") + tab.document.name,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.widthIn(max = 160.dp),
-                    )
-                    IconButton(onClick = { onClose(tab) }, modifier = Modifier.size(34.dp)) {
-                        Icon(Icons.Outlined.Close, contentDescription = "关闭 ${tab.document.name}", modifier = Modifier.size(18.dp))
+    val listState = rememberLazyListState()
+    val activeIndex = state.tabs.indexOfFirst { it.document.id == state.activeTabId }
+    LaunchedEffect(state.activeTabId, state.tabs.size) {
+        // 新文件通常追加在标签栏末尾，主动滚动可避免标题已切换但活动标签仍在屏幕外。
+        if (activeIndex >= 0) listState.animateScrollToItem(activeIndex)
+    }
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)) {
+        LazyRow(
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            contentPadding = PaddingValues(horizontal = 6.dp),
+            state = listState,
+        ) {
+            items(state.tabs, key = { it.document.id }) { tab ->
+                val active = tab.document.id == state.activeTabId
+                Box(
+                    modifier = Modifier
+                        .height(48.dp)
+                        .widthIn(min = 104.dp, max = 210.dp)
+                        .background(if (active) MaterialTheme.colorScheme.surface else ComposeColor.Transparent)
+                        .clickable { onSwitch(tab.document.id) },
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxSize().padding(start = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = tab.document.name,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (active) 1f else 0.68f),
+                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (tab.dirty) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(horizontal = if (active) 0.dp else 12.dp)
+                                    .size(6.dp)
+                                    .background(MaterialTheme.colorScheme.tertiary, CircleShape),
+                            )
+                        }
+                        if (active) {
+                            IconButton(onClick = { onClose(tab) }) {
+                                Icon(
+                                    Icons.Outlined.Close,
+                                    contentDescription = "关闭 ${tab.document.name}",
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                    }
+                    if (active) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .height(2.dp)
+                                .background(MaterialTheme.colorScheme.primary),
+                        )
                     }
                 }
             }
@@ -703,24 +762,142 @@ private fun FileSearchBar(
     onTextChanged: (String) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onClose: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.48f)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().height(48.dp).padding(start = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BasicTextField(
+                value = text,
+                onValueChange = onTextChanged,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { if (text.isNotBlank()) onNext() }),
+                decorationBox = { innerTextField ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
+                            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(6.dp))
+                            .padding(horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Outlined.FindInPage,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+                        )
+                        Box(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
+                            if (text.isBlank()) {
+                                Text(
+                                    "文件内查找",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+                                )
+                            }
+                            innerTextField()
+                        }
+                    }
+                },
+                modifier = Modifier.weight(1f).height(38.dp).focusRequester(focusRequester),
+            )
+            IconButton(onClick = onPrevious, enabled = text.isNotBlank()) {
+                Icon(Icons.Outlined.NavigateBefore, contentDescription = "上一个")
+            }
+            IconButton(onClick = onNext, enabled = text.isNotBlank()) {
+                Icon(Icons.Outlined.NavigateNext, contentDescription = "下一个")
+            }
+            IconButton(onClick = onClose) {
+                Icon(Icons.Outlined.Close, contentDescription = "关闭搜索")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReaderActionBar(
+    hasProject: Boolean,
+    markdown: Boolean,
+    markdownPreview: Boolean,
+    editable: Boolean,
+    dirty: Boolean,
+    onOpenFileSwitcher: () -> Unit,
+    onTogglePreview: () -> Unit,
+    onToggleEditable: () -> Unit,
+    onSave: () -> Unit,
+) {
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.48f)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (hasProject) {
+                ReaderActionButton(
+                    icon = Icons.Outlined.FolderOpen,
+                    contentDescription = "快速切换文件",
+                    onClick = onOpenFileSwitcher,
+                )
+            }
+            if (markdown) {
+                ReaderActionButton(
+                    icon = if (markdownPreview) Icons.Outlined.Code else Icons.Outlined.Visibility,
+                    contentDescription = if (markdownPreview) "查看源码" else "预览 Markdown",
+                    selected = markdownPreview,
+                    onClick = onTogglePreview,
+                )
+            }
+            ReaderActionButton(
+                icon = if (editable) Icons.Outlined.Lock else Icons.Outlined.Edit,
+                contentDescription = if (editable) "退出编辑" else "编辑",
+                selected = editable,
+                onClick = onToggleEditable,
+            )
+            if (dirty) {
+                ReaderActionButton(
+                    icon = Icons.Outlined.Save,
+                    contentDescription = "保存",
+                    emphasized = true,
+                    onClick = onSave,
+                )
+            }
+            Spacer(Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun ReaderActionButton(
+    icon: ImageVector,
+    contentDescription: String,
+    selected: Boolean = false,
+    emphasized: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val containerColor = when {
+        emphasized -> MaterialTheme.colorScheme.primaryContainer
+        selected -> MaterialTheme.colorScheme.secondaryContainer
+        else -> ComposeColor.Transparent
+    }
+    val contentColor = when {
+        emphasized -> MaterialTheme.colorScheme.onPrimaryContainer
+        selected -> MaterialTheme.colorScheme.onSecondaryContainer
+        else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.76f)
+    }
+    IconButton(
+        onClick = onClick,
+        colors = IconButtonDefaults.iconButtonColors(
+            containerColor = containerColor,
+            contentColor = contentColor,
+        ),
     ) {
-        OutlinedTextField(
-            value = text,
-            onValueChange = onTextChanged,
-            label = { Text("文件内查找") },
-            singleLine = true,
-            modifier = Modifier.weight(1f),
-        )
-        IconButton(onClick = onPrevious, enabled = text.isNotBlank()) {
-            Icon(Icons.Outlined.NavigateBefore, contentDescription = "上一个")
-        }
-        IconButton(onClick = onNext, enabled = text.isNotBlank()) {
-            Icon(Icons.Outlined.NavigateNext, contentDescription = "下一个")
-        }
+        Icon(icon, contentDescription = contentDescription)
     }
 }
 
