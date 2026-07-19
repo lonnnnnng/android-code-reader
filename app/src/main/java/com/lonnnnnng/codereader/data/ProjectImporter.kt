@@ -78,15 +78,11 @@ class ProjectImporter(private val context: Context) {
         }
     }
 
-    suspend fun prepareSamples(): File = withContext(Dispatchers.IO) {
-        val target = File(context.filesDir, "sample-project")
+    suspend fun prepareBundledProject(assetPath: String, targetName: String): File = withContext(Dispatchers.IO) {
+        val target = File(context.filesDir, targetName)
         if (target.exists()) target.deleteRecursively()
         target.mkdirs()
-        copyAssets("samples", target)
-        // Android assets 对点文件的枚举和打开行为不稳定，复制完成后显式生成真实 `.env` 供目录阅读验证。
-        File(target, ".env").writeText(
-            "APP_ENV=development\nAPI_BASE_URL=https://example.com/api\nFEATURE_CODE_READER=true\n",
-        )
+        copyAssets(assetPath, target)
         target
     }
 

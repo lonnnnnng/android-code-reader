@@ -6,7 +6,6 @@ import android.database.Cursor
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.documentfile.provider.DocumentFile
-import com.lonnnnnng.codereader.model.BrowserSnapshot
 import com.lonnnnnng.codereader.model.EntryLocation
 import com.lonnnnnng.codereader.model.FileType
 import com.lonnnnnng.codereader.model.OpenDocument
@@ -98,30 +97,14 @@ class DocumentRepository(private val context: Context) {
         }
     }
 
-    suspend fun listRoot(uri: Uri): BrowserSnapshot = withContext(Dispatchers.IO) {
+    suspend fun rootTitle(uri: Uri): String = withContext(Dispatchers.IO) {
         val root = DocumentFile.fromTreeUri(context, uri) ?: error("无法访问所选目录")
-        BrowserSnapshot(root.name ?: "所选目录", listSafChildren(root), 0)
+        root.name ?: "所选目录"
     }
 
-    suspend fun listChildren(location: EntryLocation, depth: Int): BrowserSnapshot = withContext(Dispatchers.IO) {
-        when (location) {
-            is EntryLocation.Saf -> {
-                val directory = DocumentFile.fromTreeUri(context, location.uri)
-                    ?: DocumentFile.fromSingleUri(context, location.uri)
-                    ?: error("目录授权已经失效")
-                BrowserSnapshot(directory.name ?: "目录", listSafChildren(directory), depth)
-            }
-            is EntryLocation.Local -> BrowserSnapshot(
-                location.file.name.ifBlank { location.file.absolutePath },
-                listLocalChildren(location.file),
-                depth,
-            )
-        }
-    }
-
-    suspend fun listLocalRoot(directory: File): BrowserSnapshot = withContext(Dispatchers.IO) {
+    suspend fun localRootTitle(directory: File): String = withContext(Dispatchers.IO) {
         require(directory.isDirectory) { "目录不存在：${directory.absolutePath}" }
-        BrowserSnapshot(directory.name, listLocalChildren(directory), 0)
+        directory.name.ifBlank { directory.absolutePath }
     }
 
     suspend fun indexProject(root: EntryLocation): List<ProjectTreeEntry> = withContext(Dispatchers.IO) {
@@ -156,10 +139,6 @@ class DocumentRepository(private val context: Context) {
         }
         results.take(MAX_PROJECT_SEARCH_RESULTS)
     }
-
-    private fun listSafChildren(directory: DocumentFile): List<SourceEntry> = directory.listFiles()
-        .map { it.toSourceEntry() }
-        .sortedWith(compareByDescending<SourceEntry> { it.isDirectory }.thenBy { it.name.lowercase() })
 
     private fun DocumentFile.toSourceEntry(): SourceEntry = SourceEntry(
         name = name ?: "未命名",

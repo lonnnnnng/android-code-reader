@@ -60,7 +60,6 @@ import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.NavigateBefore
 import androidx.compose.material.icons.outlined.NavigateNext
 import androidx.compose.material.icons.outlined.Save
-import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.UnfoldMore
@@ -111,6 +110,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
+import com.lonnnnnng.codereader.BuildConfig
 import com.lonnnnnng.codereader.data.RecentProjectRecord
 import com.lonnnnnng.codereader.model.FileType
 import com.lonnnnnng.codereader.model.ProjectSearchResult
@@ -209,8 +209,7 @@ fun ReaderApp(viewModel: ReaderViewModel) {
                             onOpenFolder = { openFolder.launch(null) },
                             onOpenZip = { openZip.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
                             onCloneGit = { showGitDialog = true },
-                            onOpenSamples = viewModel::openSamples,
-                            onRunCoverage = viewModel::runSyntaxCoverage,
+                            onOpenBundledProject = viewModel::openBundledProject,
                             onOpenRecent = viewModel::openRecentProject,
                             onRemoveRecent = viewModel::removeRecentProject,
                             onToggleTheme = viewModel::toggleTheme,
@@ -272,8 +271,7 @@ private fun HomeScreen(
     onOpenFolder: () -> Unit,
     onOpenZip: () -> Unit,
     onCloneGit: () -> Unit,
-    onOpenSamples: () -> Unit,
-    onRunCoverage: () -> Unit,
+    onOpenBundledProject: (String, String) -> Unit,
     onOpenRecent: (RecentProjectRecord) -> Unit,
     onRemoveRecent: (RecentProjectRecord) -> Unit,
     onToggleTheme: () -> Unit,
@@ -310,15 +308,22 @@ private fun HomeScreen(
                 }
             }
 
-            item { SectionLabel("验证工具") }
-            item { HomeActionRow("内置测试项目", "查看已打包的多语言样例", Icons.Outlined.Code, onOpenSamples) }
+            item { SectionLabel("示例") }
             item {
                 HomeActionRow(
-                    if (state.syntaxCoverage == null) "运行语法覆盖验证" else "语法覆盖 ${state.syntaxCoverage.passed}/${state.syntaxCoverage.total}",
-                    "检查文件识别、grammar 和语义 token",
-                    Icons.Outlined.Science,
-                    onRunCoverage,
-                )
+                    "Markdown 功能示例",
+                    "离线查看代码、公式和 Mermaid",
+                    Icons.Outlined.Code,
+                ) { onOpenBundledProject("examples", "markdown-example") }
+            }
+
+            if (BuildConfig.DEBUG) {
+                item { SectionLabel("开发工具") }
+                item {
+                    HomeActionRow("内置测试项目", "Debug 构建的多语言测试样例", Icons.Outlined.Code) {
+                        onOpenBundledProject("samples", "sample-project")
+                    }
+                }
             }
         }
     }
@@ -355,13 +360,13 @@ private fun BrowserScreen(
     onSearchResult: (ProjectSearchResult) -> Unit,
     onToggleTheme: () -> Unit,
 ) {
-    val browser = state.browser ?: return
+    val browserTitle = state.browserTitle ?: return
     var searchVisible by remember { mutableStateOf(false) }
     var searchText by remember { mutableStateOf(state.projectSearchQuery) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
-            title = { Text(browser.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            title = { Text(browserTitle, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = {
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回") }
             },

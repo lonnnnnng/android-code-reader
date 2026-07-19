@@ -57,10 +57,3 @@ data class ProjectSearchResult(
     val line: Int,
     val excerpt: String,
 )
-
-/** @author long */
-data class BrowserSnapshot(
-    val title: String,
-    val entries: List<SourceEntry>,
-    val depth: Int,
-)

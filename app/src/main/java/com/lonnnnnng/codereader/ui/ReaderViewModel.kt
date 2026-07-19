@@ -14,15 +14,12 @@ import com.lonnnnnng.codereader.domain.IndexedProjectEntry
 import com.lonnnnnng.codereader.domain.MarkdownHeading
 import com.lonnnnnng.codereader.domain.MarkdownOutlineParser
 import com.lonnnnnng.codereader.domain.ProjectIndex
-import com.lonnnnnng.codereader.model.BrowserSnapshot
 import com.lonnnnnng.codereader.model.EntryLocation
 import com.lonnnnnng.codereader.model.OpenDocument
 import com.lonnnnnng.codereader.model.ProjectSearchResult
 import com.lonnnnnng.codereader.model.ProjectTreeEntry
 import com.lonnnnnng.codereader.model.ReaderTheme
 import com.lonnnnnng.codereader.model.SourceEntry
-import com.lonnnnnng.codereader.qa.SampleCatalog
-import com.lonnnnnng.codereader.syntax.SyntaxCoverageResult
 import com.lonnnnnng.codereader.syntax.SyntaxRegistry
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -67,8 +64,7 @@ data class ReaderUiState(
     val screen: AppScreen = AppScreen.HOME,
     val busy: Boolean = false,
     val message: String? = null,
-    val browser: BrowserSnapshot? = null,
-    val projectRoot: EntryLocation? = null,
+    val browserTitle: String? = null,
     val projectEntries: List<ProjectTreeEntry> = emptyList(),
     val expandedDirectoryIds: Set<String> = emptySet(),
     val projectSearchQuery: String = "",
@@ -77,7 +73,6 @@ data class ReaderUiState(
     val tabs: List<ReaderTabState> = emptyList(),
     val activeTabId: String? = null,
     val readerCommand: ReaderCommand? = null,
-    val syntaxCoverage: SyntaxCoverageResult? = null,
     val theme: ReaderTheme = ReaderTheme.HIGH_CONTRAST_LIGHT,
     val settings: ReaderSettings = ReaderSettings(),
 ) {
@@ -157,10 +152,11 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
             )
         }
+        val title = repository.rootTitle(uri)
         openProjectRoot(
             root = EntryLocation.Saf(uri),
-            snapshot = repository.listRoot(uri),
-            recent = RecentProjectRecord("saf", repository.listRoot(uri).title, uri.toString()),
+            title = title,
+            recent = RecentProjectRecord("saf", title, uri.toString()),
         )
     }
 
@@ -172,15 +168,15 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         openLocalRoot(importer.cloneGit(url), rememberRecent = true)
     }
 
-    fun openSamples() = launchBusy {
-        openLocalRoot(importer.prepareSamples(), rememberRecent = false)
+    fun openBundledProject(assetPath: String, targetName: String) = launchBusy {
+        openLocalRoot(importer.prepareBundledProject(assetPath, targetName), rememberRecent = false)
     }
 
     fun openRecentProject(project: RecentProjectRecord) = launchBusy {
         when (project.kind) {
             "saf" -> {
                 val uri = Uri.parse(project.value)
-                openProjectRoot(EntryLocation.Saf(uri), repository.listRoot(uri), project)
+                openProjectRoot(EntryLocation.Saf(uri), repository.rootTitle(uri), project)
             }
             "local" -> {
                 val directory = File(project.value)
@@ -193,16 +189,6 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun removeRecentProject(project: RecentProjectRecord) {
         persistRecentProjects(_state.value.recentProjects.filterNot { it == project })
-    }
-
-    fun runSyntaxCoverage() = launchBusy {
-        val report = SyntaxRegistry.verify(getApplication(), SampleCatalog.all)
-        _state.update {
-            it.copy(
-                syntaxCoverage = report,
-                message = if (report.isSuccess) "语法覆盖验证通过：${report.passed}/${report.total}" else "语法覆盖存在失败",
-            )
-        }
     }
 
     fun openEntry(entry: SourceEntry) {
@@ -270,7 +256,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             current.copy(
                 tabs = remaining,
                 activeTabId = nextId,
-                screen = if (nextId == null) if (current.browser != null) AppScreen.BROWSER else AppScreen.HOME else current.screen,
+                screen = if (nextId == null) if (current.browserTitle != null) AppScreen.BROWSER else AppScreen.HOME else current.screen,
             )
         }
     }
@@ -370,15 +356,14 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun navigateBack(): Boolean = when (_state.value.screen) {
         AppScreen.READER -> {
-            _state.update { it.copy(screen = if (it.browser != null) AppScreen.BROWSER else AppScreen.HOME) }
+            _state.update { it.copy(screen = if (it.browserTitle != null) AppScreen.BROWSER else AppScreen.HOME) }
             true
         }
         AppScreen.BROWSER -> {
             _state.update {
                 it.copy(
                     screen = AppScreen.HOME,
-                    browser = null,
-                    projectRoot = null,
+                    browserTitle = null,
                     projectEntries = emptyList(),
                     expandedDirectoryIds = emptySet(),
                     projectSearchResults = emptyList(),
@@ -391,17 +376,17 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private suspend fun openLocalRoot(directory: File, rememberRecent: Boolean) {
-        val snapshot = repository.listLocalRoot(directory)
+        val title = repository.localRootTitle(directory)
         openProjectRoot(
             root = EntryLocation.Local(directory),
-            snapshot = snapshot,
-            recent = if (rememberRecent) RecentProjectRecord("local", snapshot.title, directory.absolutePath) else null,
+            title = title,
+            recent = if (rememberRecent) RecentProjectRecord("local", title, directory.absolutePath) else null,
         )
     }
 
     private suspend fun openProjectRoot(
         root: EntryLocation,
-        snapshot: BrowserSnapshot,
+        title: String,
         recent: RecentProjectRecord?,
     ) {
         val index = repository.indexProject(root)
@@ -409,8 +394,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         _state.update {
             it.copy(
                 screen = AppScreen.BROWSER,
-                browser = snapshot,
-                projectRoot = root,
+                browserTitle = title,
                 projectEntries = index,
                 expandedDirectoryIds = emptySet(),
                 projectSearchQuery = "",
