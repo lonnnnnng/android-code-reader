@@ -1,15 +1,18 @@
 package com.lonnnnnng.codereader.ui
 
+import android.graphics.Typeface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import com.lonnnnnng.codereader.model.FileType
+import com.lonnnnnng.codereader.model.ReaderFontFamily
 import com.lonnnnnng.codereader.syntax.SyntaxRegistry
 import io.github.rosemoe.sora.event.ContentChangeEvent
 import io.github.rosemoe.sora.lang.EmptyLanguage
 import io.github.rosemoe.sora.widget.CodeEditor
 import io.github.rosemoe.sora.widget.EditorSearcher
+import io.github.rosemoe.sora.widget.schemes.EditorColorScheme
 
 private class EditorDocumentBinding {
     var documentId: String? = null
@@ -31,6 +34,8 @@ fun CodeEditorView(
     fileType: FileType,
     editable: Boolean,
     fontSizeSp: Float,
+    fontFamily: ReaderFontFamily,
+    backgroundColorArgb: Int,
     wordWrap: Boolean,
     command: ReaderCommand?,
     onTextChanged: (String) -> Unit,
@@ -47,6 +52,7 @@ fun CodeEditorView(
                 isWordwrap = wordWrap
                 isLineNumberEnabled = true
                 colorScheme = SyntaxRegistry.createColorScheme()
+                applyReaderAppearance(fontFamily, backgroundColorArgb)
                 searcher.setEnsureOccurrenceVisible(true)
                 subscribeEvent(ContentChangeEvent::class.java) { event, _ ->
                     if (!binding.suppressTextCallback &&
@@ -69,6 +75,7 @@ fun CodeEditorView(
                 replaceEditorText(editor, binding, text)
             }
             editor.setTextSize(fontSizeSp)
+            editor.applyReaderAppearance(fontFamily, backgroundColorArgb)
             editor.isWordwrap = wordWrap
             editor.editable = editable
             if (command != null && binding.commandId != command.id) {
@@ -78,6 +85,19 @@ fun CodeEditorView(
         },
         onRelease = { editor -> editor.release() },
     )
+}
+
+private fun CodeEditor.applyReaderAppearance(fontFamily: ReaderFontFamily, backgroundColorArgb: Int) {
+    // 字体和背景必须直接落到 Sora 视图；只修改 Compose 外层不会影响编辑器自己的绘制画布。
+    setTypefaceText(
+        when (fontFamily) {
+            ReaderFontFamily.SYSTEM_SANS -> Typeface.DEFAULT
+            ReaderFontFamily.MONOSPACE -> Typeface.MONOSPACE
+            ReaderFontFamily.SERIF -> Typeface.SERIF
+        },
+    )
+    colorScheme.setColor(EditorColorScheme.WHOLE_BACKGROUND, backgroundColorArgb)
+    colorScheme.setColor(EditorColorScheme.LINE_NUMBER_BACKGROUND, backgroundColorArgb)
 }
 
 private fun replaceEditorText(editor: CodeEditor, binding: EditorDocumentBinding, text: String) {

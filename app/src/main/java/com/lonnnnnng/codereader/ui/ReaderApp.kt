@@ -2,11 +2,11 @@ package com.lonnnnnng.codereader.ui
 
 import android.app.Activity
 import android.content.Intent
-import android.graphics.Color
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -30,6 +30,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -67,6 +68,7 @@ import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -78,6 +80,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
@@ -101,20 +104,28 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import com.lonnnnnng.codereader.BuildConfig
 import com.lonnnnnng.codereader.data.RecentProjectRecord
+import com.lonnnnnng.codereader.model.AppColorPalette
 import com.lonnnnnng.codereader.model.FileType
 import com.lonnnnnng.codereader.model.ProjectSearchResult
 import com.lonnnnnng.codereader.model.ProjectTreeEntry
+import com.lonnnnnng.codereader.model.ReaderBackground
+import com.lonnnnnng.codereader.model.ReaderFontFamily
+import com.lonnnnnng.codereader.model.ReaderTheme
 import com.lonnnnnng.codereader.model.SourceEntry
 
 private val HighContrastLightColors = androidx.compose.material3.lightColorScheme(
@@ -153,6 +164,75 @@ private val DarculaColors = androidx.compose.material3.darkColorScheme(
     outline = ComposeColor(0xFF9A9A9A),
 )
 
+private data class PaletteAccent(
+    val primary: ComposeColor,
+    val onPrimary: ComposeColor,
+    val primaryContainer: ComposeColor,
+    val onPrimaryContainer: ComposeColor,
+    val secondary: ComposeColor,
+    val secondaryContainer: ComposeColor,
+    val onSecondaryContainer: ComposeColor,
+)
+
+/** 应用配色只替换语义强调色，背景明暗和文本对比仍由基础主题统一兜底。 @author long */
+private fun appColorScheme(theme: ReaderTheme, palette: AppColorPalette): ColorScheme {
+    val dark = theme.isDark
+    val accent = when (palette) {
+        AppColorPalette.EMERALD -> if (dark) {
+            PaletteAccent(
+                ComposeColor(0xFF75D6B4), ComposeColor(0xFF00382B), ComposeColor(0xFF174E40),
+                ComposeColor(0xFFC4F4E3), ComposeColor(0xFFA9CAE0), ComposeColor(0xFF334A59), ComposeColor(0xFFD7ECF8),
+            )
+        } else {
+            PaletteAccent(
+                ComposeColor(0xFF0B6B53), ComposeColor.White, ComposeColor(0xFFD5F1E7),
+                ComposeColor(0xFF073B2F), ComposeColor(0xFF365E7D), ComposeColor(0xFFDCEAF4), ComposeColor(0xFF17384F),
+            )
+        }
+        AppColorPalette.OCEAN -> if (dark) {
+            PaletteAccent(
+                ComposeColor(0xFF8CC8FF), ComposeColor(0xFF003258), ComposeColor(0xFF174B72),
+                ComposeColor(0xFFD5ECFF), ComposeColor(0xFFB8C8E8), ComposeColor(0xFF3B4964), ComposeColor(0xFFDFE7FF),
+            )
+        } else {
+            PaletteAccent(
+                ComposeColor(0xFF155EA8), ComposeColor.White, ComposeColor(0xFFDAE9F8),
+                ComposeColor(0xFF0C365F), ComposeColor(0xFF4C5F8C), ComposeColor(0xFFE0E7F8), ComposeColor(0xFF26395F),
+            )
+        }
+        AppColorPalette.AMBER -> if (dark) {
+            PaletteAccent(
+                ComposeColor(0xFFE6C16C), ComposeColor(0xFF3C2F00), ComposeColor(0xFF5B481B),
+                ComposeColor(0xFFFFE9AD), ComposeColor(0xFFD6C69B), ComposeColor(0xFF514A38), ComposeColor(0xFFF2E7C8),
+            )
+        } else {
+            PaletteAccent(
+                ComposeColor(0xFF805600), ComposeColor.White, ComposeColor(0xFFFFE2A8),
+                ComposeColor(0xFF4A3000), ComposeColor(0xFF685B38), ComposeColor(0xFFEFE4C5), ComposeColor(0xFF403816),
+            )
+        }
+    }
+    val base = if (dark) DarculaColors else HighContrastLightColors
+    return base.copy(
+        primary = accent.primary,
+        onPrimary = accent.onPrimary,
+        primaryContainer = accent.primaryContainer,
+        onPrimaryContainer = accent.onPrimaryContainer,
+        secondary = accent.secondary,
+        secondaryContainer = accent.secondaryContainer,
+        onSecondaryContainer = accent.onSecondaryContainer,
+    )
+}
+
+private fun paletteSwatch(palette: AppColorPalette, darkTheme: Boolean): ComposeColor =
+    appColorScheme(if (darkTheme) ReaderTheme.DARCULA else ReaderTheme.HIGH_CONTRAST_LIGHT, palette).primary
+
+private fun ReaderFontFamily.composeFamily(): FontFamily = when (this) {
+    ReaderFontFamily.SYSTEM_SANS -> FontFamily.SansSerif
+    ReaderFontFamily.MONOSPACE -> FontFamily.Monospace
+    ReaderFontFamily.SERIF -> FontFamily.Serif
+}
+
 /** @author long */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -161,6 +241,7 @@ fun ReaderApp(viewModel: ReaderViewModel) {
     val context = LocalContext.current
     val view = LocalView.current
     val snackbar = remember { SnackbarHostState() }
+    val colors = appColorScheme(state.theme, state.settings.appPalette)
     var showGitDialog by remember { mutableStateOf(false) }
 
     val openFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -188,7 +269,7 @@ fun ReaderApp(viewModel: ReaderViewModel) {
     SideEffect {
         if (!view.isInEditMode) {
             val window = (view.context as Activity).window
-            val systemBarColor = if (state.theme.isDark) Color.rgb(30, 30, 30) else Color.rgb(247, 249, 250)
+            val systemBarColor = colors.background.toArgb()
             window.statusBarColor = systemBarColor
             window.navigationBarColor = systemBarColor
             WindowCompat.getInsetsController(window, view).apply {
@@ -198,7 +279,7 @@ fun ReaderApp(viewModel: ReaderViewModel) {
         }
     }
 
-    MaterialTheme(colorScheme = if (state.theme.isDark) DarculaColors else HighContrastLightColors) {
+    MaterialTheme(colorScheme = colors) {
         Surface(modifier = Modifier.fillMaxSize()) {
             Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { padding ->
                 Box(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -212,7 +293,18 @@ fun ReaderApp(viewModel: ReaderViewModel) {
                             onOpenBundledProject = viewModel::openBundledProject,
                             onOpenRecent = viewModel::openRecentProject,
                             onRemoveRecent = viewModel::removeRecentProject,
+                            onOpenSettings = viewModel::openSettings,
                             onToggleTheme = viewModel::toggleTheme,
+                        )
+                        AppScreen.SETTINGS -> SettingsScreen(
+                            state = state,
+                            onBack = viewModel::navigateBack,
+                            onSetFontFamily = viewModel::setFontFamily,
+                            onSetFontSize = viewModel::setFontSize,
+                            onSetReaderBackground = viewModel::setReaderBackground,
+                            onSetAppPalette = viewModel::setAppPalette,
+                            onSetTheme = viewModel::setTheme,
+                            onSetWordWrap = viewModel::setWordWrap,
                         )
                         AppScreen.BROWSER -> BrowserScreen(
                             state = state,
@@ -274,12 +366,18 @@ private fun HomeScreen(
     onOpenBundledProject: (String, String) -> Unit,
     onOpenRecent: (RecentProjectRecord) -> Unit,
     onRemoveRecent: (RecentProjectRecord) -> Unit,
+    onOpenSettings: () -> Unit,
     onToggleTheme: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text("源码阅读器", fontWeight = FontWeight.SemiBold) },
-            actions = { ThemeToggleButton(state.theme.isDark, onToggleTheme) },
+            actions = {
+                ThemeToggleButton(state.theme.isDark, onToggleTheme)
+                IconButton(onClick = onOpenSettings) {
+                    Icon(Icons.Outlined.Settings, contentDescription = "设置")
+                }
+            },
             windowInsets = WindowInsets(),
         )
         HorizontalDivider()
@@ -327,6 +425,243 @@ private fun HomeScreen(
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingsScreen(
+    state: ReaderUiState,
+    onBack: () -> Unit,
+    onSetFontFamily: (ReaderFontFamily) -> Unit,
+    onSetFontSize: (Float) -> Unit,
+    onSetReaderBackground: (ReaderBackground) -> Unit,
+    onSetAppPalette: (AppColorPalette) -> Unit,
+    onSetTheme: (ReaderTheme) -> Unit,
+    onSetWordWrap: (Boolean) -> Unit,
+) {
+    val settings = state.settings
+    Column(modifier = Modifier.fillMaxSize()) {
+        TopAppBar(
+            title = { Text("设置", fontWeight = FontWeight.SemiBold) },
+            navigationIcon = {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
+                }
+            },
+            windowInsets = WindowInsets(),
+        )
+        HorizontalDivider()
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().testTag("settings-list"),
+            contentPadding = PaddingValues(bottom = 32.dp),
+        ) {
+            item {
+                SettingsPreview(
+                    settings = settings,
+                    darkTheme = state.theme.isDark,
+                )
+            }
+
+            item { SettingsSectionHeader("显示设置", "调整源码与 Markdown 的共同阅读体验") }
+            item { SettingsGroupLabel("字体") }
+            items(ReaderFontFamily.entries, key = { it.preferenceValue }) { font ->
+                SettingsChoiceRow(
+                    title = font.displayName,
+                    summary = font.description,
+                    selected = settings.fontFamily == font,
+                    testTag = "font-${font.preferenceValue}",
+                    onClick = { onSetFontFamily(font) },
+                    leading = {
+                        Text(
+                            "Aa",
+                            fontFamily = font.composeFamily(),
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    },
+                )
+            }
+
+            item {
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp)) {
+                    Text("字体大小 ${settings.fontSizeSp.toInt()} sp", fontWeight = FontWeight.Medium)
+                    Text(
+                        "源码和 Markdown 正文同步缩放",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                    )
+                    Slider(
+                        value = settings.fontSizeSp,
+                        onValueChange = onSetFontSize,
+                        valueRange = 11f..24f,
+                        steps = 12,
+                        modifier = Modifier.testTag("font-size-slider"),
+                    )
+                }
+                HorizontalDivider()
+            }
+
+            item { SettingsGroupLabel("阅读背景") }
+            items(ReaderBackground.entries, key = { it.preferenceValue }) { background ->
+                SettingsChoiceRow(
+                    title = background.displayName,
+                    summary = background.description,
+                    selected = settings.background == background,
+                    testTag = "background-${background.preferenceValue}",
+                    onClick = { onSetReaderBackground(background) },
+                    leading = {
+                        ColorSwatch(
+                            color = ComposeColor(background.colorArgb(state.theme.isDark)),
+                            borderColor = MaterialTheme.colorScheme.outline,
+                        )
+                    },
+                )
+            }
+
+            item { SettingsSectionHeader("整体配色", "控制应用外壳、按钮和选中状态的强调色") }
+            items(AppColorPalette.entries, key = { it.preferenceValue }) { palette ->
+                SettingsChoiceRow(
+                    title = palette.displayName,
+                    summary = palette.description,
+                    selected = settings.appPalette == palette,
+                    testTag = "palette-${palette.preferenceValue}",
+                    onClick = { onSetAppPalette(palette) },
+                    leading = {
+                        ColorSwatch(
+                            color = paletteSwatch(palette, state.theme.isDark),
+                            borderColor = MaterialTheme.colorScheme.outline,
+                        )
+                    },
+                )
+            }
+
+            item { SettingsGroupLabel("明暗模式") }
+            items(ReaderTheme.entries, key = { it.preferenceValue }) { theme ->
+                SettingsChoiceRow(
+                    title = if (theme.isDark) "Darcula 暗色" else "高对比亮色",
+                    summary = if (theme.isDark) "适合夜间和低亮度环境" else "适合白天和明亮环境",
+                    selected = state.theme == theme,
+                    testTag = "theme-${theme.preferenceValue}",
+                    onClick = { onSetTheme(theme) },
+                    leading = {
+                        Icon(
+                            if (theme.isDark) Icons.Outlined.DarkMode else Icons.Outlined.LightMode,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    },
+                )
+            }
+
+            item {
+                ListItem(
+                    headlineContent = { Text("源码自动换行") },
+                    supportingContent = { Text("长行不再需要横向滚动") },
+                    trailingContent = {
+                        Switch(
+                            checked = settings.wordWrap,
+                            onCheckedChange = onSetWordWrap,
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSetWordWrap(!settings.wordWrap) }
+                        .testTag("word-wrap-setting"),
+                )
+                HorizontalDivider()
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsPreview(settings: ReaderSettings, darkTheme: Boolean) {
+    val background = ComposeColor(settings.background.colorArgb(darkTheme))
+    val foreground = if (darkTheme) ComposeColor(0xFFE5E7EB) else ComposeColor(0xFF1F2937)
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp)) {
+        Text(
+            "实时预览",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+        Surface(
+            color = background,
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)),
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                Text(
+                    "fun main() { println(\"Hello, reader\") }",
+                    color = foreground,
+                    fontFamily = settings.fontFamily.composeFamily(),
+                    fontSize = settings.fontSizeSp.sp,
+                )
+                Text(
+                    "源码与 Markdown 会使用同一套显示偏好。",
+                    color = foreground.copy(alpha = 0.76f),
+                    fontFamily = settings.fontFamily.composeFamily(),
+                    fontSize = (settings.fontSizeSp - 1f).coerceAtLeast(11f).sp,
+                    modifier = Modifier.padding(top = 10.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsSectionHeader(title: String, summary: String) {
+    Column(modifier = Modifier.fillMaxWidth().padding(start = 20.dp, top = 22.dp, end = 20.dp, bottom = 6.dp)) {
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(
+            summary,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+            modifier = Modifier.padding(top = 2.dp),
+        )
+    }
+}
+
+@Composable
+private fun SettingsGroupLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 20.dp, top = 14.dp, end = 20.dp, bottom = 4.dp),
+    )
+}
+
+@Composable
+private fun SettingsChoiceRow(
+    title: String,
+    summary: String,
+    selected: Boolean,
+    testTag: String,
+    onClick: () -> Unit,
+    leading: @Composable () -> Unit,
+) {
+    ListItem(
+        headlineContent = { Text(title) },
+        supportingContent = { Text(summary) },
+        leadingContent = leading,
+        trailingContent = { RadioButton(selected = selected, onClick = null) },
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .testTag(testTag),
+    )
+    HorizontalDivider()
+}
+
+@Composable
+private fun ColorSwatch(color: ComposeColor, borderColor: ComposeColor) {
+    Box(
+        modifier = Modifier
+            .size(30.dp)
+            .background(color, CircleShape)
+            .border(1.dp, borderColor.copy(alpha = 0.7f), CircleShape),
+    )
 }
 
 @Composable
@@ -616,7 +951,9 @@ private fun ReaderScreen(
                 MarkdownPreview(
                     markdownText = state.draftText,
                     darkTheme = state.theme.isDark,
-                    fontSizeSp = state.settings.fontSizeSp + 2f,
+                    fontSizeSp = state.settings.fontSizeSp,
+                    fontFamily = state.settings.fontFamily,
+                    backgroundColorArgb = state.settings.background.colorArgb(state.theme.isDark),
                     command = state.readerCommand,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -627,6 +964,8 @@ private fun ReaderScreen(
                     fileType = document.fileType,
                     editable = state.editable,
                     fontSizeSp = state.settings.fontSizeSp,
+                    fontFamily = state.settings.fontFamily,
+                    backgroundColorArgb = state.settings.background.colorArgb(state.theme.isDark),
                     wordWrap = state.settings.wordWrap,
                     command = state.readerCommand,
                     onTextChanged = onTextChanged,

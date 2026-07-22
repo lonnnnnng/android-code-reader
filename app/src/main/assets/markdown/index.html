@@ -9,7 +9,7 @@
   <style>
     :root {
       color-scheme: light;
-      --background: #ffffff;
+      --background: __BACKGROUND_COLOR__;
       --surface: #f6f8fa;
       --surface-strong: #e9edf3;
       --text: #1f2328;
@@ -31,7 +31,7 @@
     html.dark,
     body.dark {
       color-scheme: dark;
-      --background: #242424;
+      --background: __BACKGROUND_COLOR__;
       --surface: #2b2b2b;
       --surface-strong: #343434;
       --text: #d4d4d4;
@@ -63,7 +63,7 @@
 
     body {
       padding: 18px 16px 56px;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-family: __FONT_FAMILY__;
       font-size: __FONT_SIZE__px;
       line-height: 1.62;
       overflow-wrap: break-word;
@@ -133,7 +133,7 @@
       background: var(--surface-strong);
       color: var(--code);
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 0.9em;
+      font-size: 1em;
     }
 
     pre {
@@ -154,7 +154,7 @@
       border-radius: 0;
       background: transparent;
       color: var(--code);
-      font-size: 13px;
+      font-size: 0.9em;
       line-height: 1.55;
       white-space: pre;
     }

@@ -5,7 +5,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -21,11 +20,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import com.lonnnnnng.codereader.model.ReaderFontFamily
 
 private class MarkdownDocumentBinding {
     var markdownText: String? = null
     var darkTheme: Boolean? = null
     var fontSizeSp: Float? = null
+    var fontFamily: ReaderFontFamily? = null
+    var backgroundColorArgb: Int? = null
     var commandId: Long? = null
     var searchQuery: String? = null
 }
@@ -55,6 +57,8 @@ fun MarkdownPreview(
     markdownText: String,
     darkTheme: Boolean,
     fontSizeSp: Float,
+    fontFamily: ReaderFontFamily,
+    backgroundColorArgb: Int,
     command: ReaderCommand?,
     modifier: Modifier = Modifier,
 ) {
@@ -68,7 +72,7 @@ fun MarkdownPreview(
         modifier = modifier,
         factory = { viewContext ->
             WebView(viewContext).apply {
-                setBackgroundColor(if (darkTheme) DARK_BACKGROUND else Color.WHITE)
+                setBackgroundColor(backgroundColorArgb)
                 settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = false
@@ -92,17 +96,20 @@ fun MarkdownPreview(
         },
         update = { webView ->
             val contentChanged = binding.markdownText != markdownText ||
-                binding.darkTheme != darkTheme || binding.fontSizeSp != fontSizeSp
+                binding.darkTheme != darkTheme || binding.fontSizeSp != fontSizeSp ||
+                binding.fontFamily != fontFamily || binding.backgroundColorArgb != backgroundColorArgb
             if (contentChanged) {
                 val encodedMarkdown = Base64.encodeToString(markdownText.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
                 val html = htmlTemplate
                     .replace("__BODY_CLASS__", if (darkTheme) "dark" else "")
                     .replace("__DARK_THEME__", darkTheme.toString())
                     .replace("__FONT_SIZE__", fontSizeSp.toInt().toString())
+                    .replace("__FONT_FAMILY__", fontFamily.cssFamily)
+                    .replace("__BACKGROUND_COLOR__", "#%06X".format(backgroundColorArgb and 0x00FFFFFF))
                     .replace("__MARKDOWN_BASE64__", encodedMarkdown)
 
                 // 主题和正文一起重载，避免 WebView 保留上一份文档的 Mermaid 或 KaTeX 节点。
-                webView.setBackgroundColor(if (darkTheme) DARK_BACKGROUND else Color.WHITE)
+                webView.setBackgroundColor(backgroundColorArgb)
                 webView.loadDataWithBaseURL(
                     "file:///android_asset/markdown/",
                     html,
@@ -113,6 +120,8 @@ fun MarkdownPreview(
                 binding.markdownText = markdownText
                 binding.darkTheme = darkTheme
                 binding.fontSizeSp = fontSizeSp
+                binding.fontFamily = fontFamily
+                binding.backgroundColorArgb = backgroundColorArgb
                 binding.searchQuery = null
             }
             if (command != null && binding.commandId != command.id) {
@@ -156,5 +165,3 @@ private fun openExternalLink(webView: WebView, uri: Uri): Boolean {
         true
     }.getOrDefault(true)
 }
-
-private const val DARK_BACKGROUND = 0xFF242424.toInt()

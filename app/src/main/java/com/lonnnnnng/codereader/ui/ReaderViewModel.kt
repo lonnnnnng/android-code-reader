@@ -14,10 +14,13 @@ import com.lonnnnnng.codereader.domain.IndexedProjectEntry
 import com.lonnnnnng.codereader.domain.MarkdownHeading
 import com.lonnnnnng.codereader.domain.MarkdownOutlineParser
 import com.lonnnnnng.codereader.domain.ProjectIndex
+import com.lonnnnnng.codereader.model.AppColorPalette
 import com.lonnnnnng.codereader.model.EntryLocation
 import com.lonnnnnng.codereader.model.OpenDocument
 import com.lonnnnnng.codereader.model.ProjectSearchResult
 import com.lonnnnnng.codereader.model.ProjectTreeEntry
+import com.lonnnnnng.codereader.model.ReaderBackground
+import com.lonnnnnng.codereader.model.ReaderFontFamily
 import com.lonnnnnng.codereader.model.ReaderTheme
 import com.lonnnnnng.codereader.model.SourceEntry
 import com.lonnnnnng.codereader.syntax.SyntaxRegistry
@@ -30,7 +33,7 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicLong
 
 /** @author long */
-enum class AppScreen { HOME, BROWSER, READER }
+enum class AppScreen { HOME, SETTINGS, BROWSER, READER }
 
 /** @author long */
 enum class ReaderCommandType { SEARCH_FORWARD, SEARCH_BACKWARD, GOTO_LINE, MARKDOWN_HEADING }
@@ -48,6 +51,9 @@ data class ReaderCommand(
 data class ReaderSettings(
     val fontSizeSp: Float = 14f,
     val wordWrap: Boolean = false,
+    val fontFamily: ReaderFontFamily = ReaderFontFamily.SYSTEM_SANS,
+    val background: ReaderBackground = ReaderBackground.FOLLOW_THEME,
+    val appPalette: AppColorPalette = AppColorPalette.EMERALD,
 )
 
 /** 每个标签页独立保存草稿和预览状态，切换文件不会丢失未保存内容。 @author long */
@@ -110,6 +116,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private val initialSettings = ReaderSettings(
         fontSizeSp = preferences.getFloat(KEY_FONT_SIZE, 14f).coerceIn(MIN_FONT_SIZE, MAX_FONT_SIZE),
         wordWrap = preferences.getBoolean(KEY_WORD_WRAP, false),
+        fontFamily = ReaderFontFamily.fromPreference(preferences.getString(KEY_FONT_FAMILY, null)),
+        background = ReaderBackground.fromPreference(preferences.getString(KEY_READER_BACKGROUND, null)),
+        appPalette = AppColorPalette.fromPreference(preferences.getString(KEY_APP_PALETTE, null)),
     )
     private val initialRecentProjects = RecentProjectCodec.decode(preferences.getString(KEY_RECENT_PROJECTS, null))
     private val _state = MutableStateFlow(
@@ -337,6 +346,21 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         _state.update { it.copy(settings = it.settings.copy(wordWrap = enabled)) }
     }
 
+    fun setFontFamily(fontFamily: ReaderFontFamily) {
+        preferences.edit().putString(KEY_FONT_FAMILY, fontFamily.preferenceValue).apply()
+        _state.update { it.copy(settings = it.settings.copy(fontFamily = fontFamily)) }
+    }
+
+    fun setReaderBackground(background: ReaderBackground) {
+        preferences.edit().putString(KEY_READER_BACKGROUND, background.preferenceValue).apply()
+        _state.update { it.copy(settings = it.settings.copy(background = background)) }
+    }
+
+    fun setAppPalette(palette: AppColorPalette) {
+        preferences.edit().putString(KEY_APP_PALETTE, palette.preferenceValue).apply()
+        _state.update { it.copy(settings = it.settings.copy(appPalette = palette)) }
+    }
+
     fun toggleTheme() {
         setTheme(_state.value.theme.toggled())
     }
@@ -348,6 +372,10 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             preferences.edit().putString(KEY_THEME, theme.preferenceValue).apply()
             _state.update { it.copy(theme = theme) }
         }.onFailure(::showError)
+    }
+
+    fun openSettings() {
+        _state.update { it.copy(screen = AppScreen.SETTINGS) }
     }
 
     fun dismissMessage() {
@@ -370,6 +398,10 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     projectSearchQuery = "",
                 )
             }
+            true
+        }
+        AppScreen.SETTINGS -> {
+            _state.update { it.copy(screen = AppScreen.HOME) }
             true
         }
         AppScreen.HOME -> false
@@ -481,6 +513,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         const val KEY_THEME = "reader_theme"
         const val KEY_FONT_SIZE = "reader_font_size"
         const val KEY_WORD_WRAP = "reader_word_wrap"
+        const val KEY_FONT_FAMILY = "reader_font_family"
+        const val KEY_READER_BACKGROUND = "reader_background"
+        const val KEY_APP_PALETTE = "app_color_palette"
         const val KEY_RECENT_PROJECTS = "recent_projects"
         const val MIN_FONT_SIZE = 11f
         const val MAX_FONT_SIZE = 24f
