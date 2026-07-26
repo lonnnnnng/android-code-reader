@@ -100,6 +100,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -144,6 +145,7 @@ fun ReaderApp(viewModel: ReaderViewModel) {
     val snackbar = remember { SnackbarHostState() }
     val colors = appColorScheme(state.theme, state.settings.appPalette)
     var showGitDialog by remember { mutableStateOf(false) }
+    var showExitConfirmation by rememberSaveable { mutableStateOf(false) }
 
     val openFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
@@ -182,7 +184,16 @@ fun ReaderApp(viewModel: ReaderViewModel) {
         }
     }
 
-    BackHandler(enabled = state.screen != AppScreen.HOME) { viewModel.navigateBack() }
+    // 系统侧边手势与返回键共用现有页面栈，只有首页没有可返回页面时才进入退出确认。
+    BackHandler {
+        if (showExitConfirmation) {
+            showExitConfirmation = false
+        } else if (showGitDialog) {
+            showGitDialog = false
+        } else if (!viewModel.navigateBack()) {
+            showExitConfirmation = true
+        }
+    }
 
     LaunchedEffect(state.message) {
         state.message?.let {
@@ -295,6 +306,34 @@ fun ReaderApp(viewModel: ReaderViewModel) {
                     }
                 }
             }
+        }
+
+        if (showExitConfirmation) {
+            AlertDialog(
+                onDismissRequest = { showExitConfirmation = false },
+                modifier = Modifier.testTag("exit-confirmation-dialog"),
+                title = { Text("退出源码阅读器？") },
+                text = { Text("未保存的修改不会自动保存，确定要退出应用吗？") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showExitConfirmation = false
+                            (context as? Activity)?.finish()
+                        },
+                        modifier = Modifier.testTag("exit-confirm-button"),
+                    ) {
+                        Text("退出应用", color = MaterialTheme.colorScheme.error)
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { showExitConfirmation = false },
+                        modifier = Modifier.testTag("exit-cancel-button"),
+                    ) {
+                        Text("取消")
+                    }
+                },
+            )
         }
     }
 

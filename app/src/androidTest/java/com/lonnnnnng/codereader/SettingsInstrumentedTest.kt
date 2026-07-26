@@ -12,6 +12,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.lifecycle.Lifecycle
 import org.junit.Rule
 import org.junit.Test
 import org.junit.Assert.assertEquals
@@ -129,6 +130,29 @@ class SettingsInstrumentedTest {
         }
         composeRule.waitForIdle()
         composeRule.onNodeWithText("打开内容").assertIsDisplayed()
+    }
+
+    @Test
+    fun exitApplicationRequiresConfirmation() {
+        composeRule.activityRule.scenario.onActivity { activity ->
+            activity.onBackPressedDispatcher.onBackPressed()
+        }
+        composeRule.onNodeWithTag("exit-confirmation-dialog").assertIsDisplayed()
+        composeRule.onNodeWithText("未保存的修改不会自动保存", substring = true).assertIsDisplayed()
+
+        composeRule.onNodeWithTag("exit-cancel-button").performClick()
+        composeRule.onNodeWithText("打开内容").assertIsDisplayed()
+
+        composeRule.activityRule.scenario.onActivity { activity ->
+            activity.onBackPressedDispatcher.onBackPressed()
+        }
+        composeRule.onNodeWithTag("exit-confirmation-dialog").assertIsDisplayed()
+        composeRule.onNodeWithTag("exit-confirm-button").performClick()
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.activityRule.scenario.state == Lifecycle.State.DESTROYED
+        }
+        assertEquals(Lifecycle.State.DESTROYED, composeRule.activityRule.scenario.state)
     }
 
     private fun selectDropdown(selectorTag: String, optionTag: String) {
