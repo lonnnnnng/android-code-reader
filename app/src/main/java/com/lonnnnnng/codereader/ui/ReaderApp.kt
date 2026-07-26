@@ -131,6 +131,8 @@ import com.lonnnnnng.codereader.model.ProjectTreeEntry
 import com.lonnnnnng.codereader.model.ReaderBackground
 import com.lonnnnnng.codereader.model.ReaderTheme
 import com.lonnnnnng.codereader.model.SourceEntry
+import com.lonnnnnng.codereader.update.AppUpdateInstaller
+import java.io.File
 
 /** @author long */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -154,6 +156,30 @@ fun ReaderApp(viewModel: ReaderViewModel) {
     }
     val openZip = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { viewModel.importZip(it) }
+    }
+    val startUpdateInstaller: (File) -> Unit = { file ->
+        context.startActivity(AppUpdateInstaller.createInstallIntent(context, file))
+    }
+    val installSourcePermission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        val apk = state.appUpdate.downloadedApk
+        if (apk != null && AppUpdateInstaller.canRequestPackageInstalls(context)) {
+            runCatching { startUpdateInstaller(apk) }
+                .onFailure { viewModel.reportUpdateMessage("无法打开系统安装器：${it.message ?: it.javaClass.simpleName}") }
+        } else {
+            viewModel.reportUpdateMessage("需要允许源码阅读器安装更新")
+        }
+    }
+    val installUpdate: () -> Unit = {
+        val apk = state.appUpdate.downloadedApk
+        if (apk == null) {
+            viewModel.reportUpdateMessage("更新安装包尚未下载完成")
+        } else if (AppUpdateInstaller.canRequestPackageInstalls(context)) {
+            runCatching { startUpdateInstaller(apk) }
+                .onFailure { viewModel.reportUpdateMessage("无法打开系统安装器：${it.message ?: it.javaClass.simpleName}") }
+        } else {
+            runCatching { installSourcePermission.launch(AppUpdateInstaller.createUnknownSourcesIntent(context)) }
+                .onFailure { viewModel.reportUpdateMessage("无法打开安装来源设置：${it.message ?: it.javaClass.simpleName}") }
+        }
     }
 
     BackHandler(enabled = state.screen != AppScreen.HOME) { viewModel.navigateBack() }
@@ -211,6 +237,12 @@ fun ReaderApp(viewModel: ReaderViewModel) {
                             onSetAppPalette = viewModel::setAppPalette,
                             onSetTheme = viewModel::setTheme,
                             onSetWordWrap = viewModel::setWordWrap,
+                            onOpenSettingsPage = viewModel::openSettingsPage,
+                            onCheckUpdate = viewModel::checkForUpdate,
+                            onShowUpdateDetails = viewModel::showUpdateDetails,
+                            onDownloadUpdate = viewModel::downloadUpdate,
+                            onDismissUpdate = viewModel::dismissUpdateDetails,
+                            onInstallUpdate = installUpdate,
                         )
                             AppScreen.BROWSER -> BrowserScreen(
                             state = state,
@@ -574,57 +606,183 @@ private fun SettingsScreen(
     onSetAppPalette: (AppColorPalette) -> Unit,
     onSetTheme: (ReaderTheme) -> Unit,
     onSetWordWrap: (Boolean) -> Unit,
+    onOpenSettingsPage: (SettingsPage) -> Unit,
+    onCheckUpdate: () -> Unit,
+    onShowUpdateDetails: () -> Unit,
+    onDownloadUpdate: () -> Unit,
+    onDismissUpdate: () -> Unit,
+    onInstallUpdate: () -> Unit,
 ) {
+    val (title, subtitle) = when (state.settingsPage) {
+        SettingsPage.ROOT -> "设置" to "按类型管理应用偏好"
+        SettingsPage.READING -> "阅读与显示" to "源码与 Markdown"
+        SettingsPage.APPEARANCE -> "应用外观" to "配色与明暗模式"
+        SettingsPage.UPDATE -> "关于与更新" to "版本与在线更新"
+    }
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        ProductHeader(title = "设置", subtitle = "显示与阅读", onBack = onBack)
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            // 横屏若继续上下排列，固定预览会挤掉绝大部分设置区；左右分栏能同时保留预览和完整滚动空间。
-            if (maxWidth > maxHeight) {
-                Row(modifier = Modifier.fillMaxSize()) {
-                    SettingsPreview(
-                        settings = state.settings,
-                        darkTheme = state.theme.isDark,
-                        modifier = Modifier.weight(1f).fillMaxHeight(),
-                    )
-                    SettingsList(
-                        state = state,
-                        onSetFontSize = onSetFontSize,
-                        onSetReaderBackground = onSetReaderBackground,
-                        onSetAppPalette = onSetAppPalette,
-                        onSetTheme = onSetTheme,
-                        onSetWordWrap = onSetWordWrap,
-                        modifier = Modifier.weight(1.1f).fillMaxHeight(),
-                    )
-                }
-            } else {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    SettingsPreview(
-                        settings = state.settings,
-                        darkTheme = state.theme.isDark,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    SettingsList(
-                        state = state,
-                        onSetFontSize = onSetFontSize,
-                        onSetReaderBackground = onSetReaderBackground,
-                        onSetAppPalette = onSetAppPalette,
-                        onSetTheme = onSetTheme,
-                        onSetWordWrap = onSetWordWrap,
-                        modifier = Modifier.fillMaxWidth().weight(1f),
-                    )
-                }
+        ProductHeader(title = title, subtitle = subtitle, onBack = onBack)
+        when (state.settingsPage) {
+            SettingsPage.ROOT -> SettingsCategoryList(
+                state = state,
+                onOpenPage = onOpenSettingsPage,
+            )
+            SettingsPage.READING -> SettingsWithPreview(
+                state = state,
+                pageTag = "settings-page-reading",
+            ) { modifier ->
+                ReadingSettingsList(
+                    state = state,
+                    onSetFontSize = onSetFontSize,
+                    onSetReaderBackground = onSetReaderBackground,
+                    onSetWordWrap = onSetWordWrap,
+                    modifier = modifier,
+                )
+            }
+            SettingsPage.APPEARANCE -> SettingsWithPreview(
+                state = state,
+                pageTag = "settings-page-appearance",
+            ) { modifier ->
+                AppearanceSettingsList(
+                    state = state,
+                    onSetAppPalette = onSetAppPalette,
+                    onSetTheme = onSetTheme,
+                    modifier = modifier,
+                )
+            }
+            SettingsPage.UPDATE -> UpdateSettingsList(
+                state = state,
+                onCheckUpdate = onCheckUpdate,
+                onShowUpdateDetails = onShowUpdateDetails,
+                onInstallUpdate = onInstallUpdate,
+            )
+        }
+    }
+    AppUpdateDialog(
+        state = state.appUpdate,
+        onDismiss = onDismissUpdate,
+        onDownload = onDownloadUpdate,
+        onInstall = onInstallUpdate,
+    )
+}
+
+@Composable
+private fun SettingsCategoryList(
+    state: ReaderUiState,
+    onOpenPage: (SettingsPage) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxSize().testTag("settings-page-root")) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().testTag("settings-root-list"),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
+        ) {
+            item { SettingsSectionHeader("设置分类", "选择要调整的内容") }
+            item {
+                SettingsCategoryRow(
+                    title = "阅读与显示",
+                    summary = "${state.settings.fontSizeSp.toInt()} sp · ${state.settings.background.displayName} · ${if (state.settings.wordWrap) "自动换行" else "保持长行"}",
+                    icon = Icons.Outlined.Visibility,
+                    testTag = "settings-category-reading",
+                    onClick = { onOpenPage(SettingsPage.READING) },
+                )
+            }
+            item {
+                SettingsCategoryRow(
+                    title = "应用外观",
+                    summary = "${state.settings.appPalette.displayName} · ${if (state.theme.isDark) "Darcula 暗色" else "高对比亮色"}",
+                    icon = Icons.Outlined.DarkMode,
+                    testTag = "settings-category-appearance",
+                    onClick = { onOpenPage(SettingsPage.APPEARANCE) },
+                )
+            }
+            item {
+                SettingsCategoryRow(
+                    title = "关于与更新",
+                    summary = "当前版本 v${BuildConfig.VERSION_NAME} · 在线检查与安装",
+                    icon = Icons.Outlined.CloudDownload,
+                    testTag = "settings-category-update",
+                    onClick = { onOpenPage(SettingsPage.UPDATE) },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun SettingsList(
+private fun SettingsCategoryRow(
+    title: String,
+    summary: String,
+    icon: ImageVector,
+    testTag: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp).testTag(testTag),
+        color = MaterialTheme.colorScheme.surface,
+        shape = MaterialTheme.shapes.medium,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(
+                modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(6.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(22.dp))
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text(
+                    summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(Icons.Outlined.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun SettingsWithPreview(
+    state: ReaderUiState,
+    pageTag: String,
+    settingsContent: @Composable (Modifier) -> Unit,
+) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize().testTag(pageTag)) {
+        // 二级设置只保留与预览相关的选项；横屏采用左右分栏，竖屏固定预览并让下方选项独立滚动。
+        if (maxWidth > maxHeight) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                SettingsPreview(
+                    settings = state.settings,
+                    darkTheme = state.theme.isDark,
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
+                settingsContent(Modifier.weight(1.1f).fillMaxHeight())
+            }
+        } else {
+            Column(modifier = Modifier.fillMaxSize()) {
+                SettingsPreview(
+                    settings = state.settings,
+                    darkTheme = state.theme.isDark,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                settingsContent(Modifier.fillMaxWidth().weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReadingSettingsList(
     state: ReaderUiState,
     onSetFontSize: (Float) -> Unit,
     onSetReaderBackground: (ReaderBackground) -> Unit,
-    onSetAppPalette: (AppColorPalette) -> Unit,
-    onSetTheme: (ReaderTheme) -> Unit,
     onSetWordWrap: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -633,7 +791,7 @@ private fun SettingsList(
         modifier = modifier.testTag("settings-list"),
         contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
     ) {
-            item { SettingsSectionHeader("阅读设置", "源码和 Markdown 统一使用手机系统字体") }
+            item { SettingsSectionHeader("阅读体验", "源码和 Markdown 统一使用手机系统字体") }
             item {
                 Surface(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
@@ -710,8 +868,22 @@ private fun SettingsList(
                     }
                 }
             }
+    }
+}
 
-            item { SettingsSectionHeader("应用外观", "集中选择应用强调色和明暗模式") }
+@Composable
+private fun AppearanceSettingsList(
+    state: ReaderUiState,
+    onSetAppPalette: (AppColorPalette) -> Unit,
+    onSetTheme: (ReaderTheme) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val settings = state.settings
+    LazyColumn(
+        modifier = modifier.testTag("settings-list"),
+        contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
+    ) {
+            item { SettingsSectionHeader("外观偏好", "集中选择应用强调色和明暗模式") }
             item {
                 SettingsDropdownField(
                     label = "整体配色",
@@ -752,6 +924,31 @@ private fun SettingsList(
                     },
                 )
             }
+    }
+}
+
+@Composable
+private fun UpdateSettingsList(
+    state: ReaderUiState,
+    onCheckUpdate: () -> Unit,
+    onShowUpdateDetails: () -> Unit,
+    onInstallUpdate: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxSize().testTag("settings-page-update")) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().testTag("settings-list"),
+            contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
+        ) {
+            item { SettingsSectionHeader("版本管理", "从 GitHub Releases 检查已签名版本") }
+            item {
+                AppUpdateSettingRow(
+                    state = state.appUpdate,
+                    onCheck = onCheckUpdate,
+                    onShowDetails = onShowUpdateDetails,
+                    onInstall = onInstallUpdate,
+                )
+            }
+        }
     }
 }
 

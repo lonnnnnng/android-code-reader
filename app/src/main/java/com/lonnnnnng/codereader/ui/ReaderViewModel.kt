@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.core.content.IntentCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.lonnnnnng.codereader.BuildConfig
 import com.lonnnnnng.codereader.data.DocumentRepository
 import com.lonnnnnng.codereader.data.ProjectImporter
 import com.lonnnnnng.codereader.data.RecentProjectCodec
@@ -23,16 +24,24 @@ import com.lonnnnnng.codereader.model.ReaderBackground
 import com.lonnnnnng.codereader.model.ReaderTheme
 import com.lonnnnnng.codereader.model.SourceEntry
 import com.lonnnnnng.codereader.syntax.SyntaxRegistry
+import com.lonnnnnng.codereader.update.AppRelease
+import com.lonnnnnng.codereader.update.AppUpdateInstaller
+import com.lonnnnnng.codereader.update.AppUpdateRepository
+import com.lonnnnnng.codereader.update.isNewerVersion
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /** @author long */
 enum class AppScreen { HOME, SETTINGS, BROWSER, READER }
+
+/** 设置采用一级分类、二级详情，返回时先退回分类页再离开设置。 @author long */
+enum class SettingsPage { ROOT, READING, APPEARANCE, UPDATE }
 
 /** @author long */
 enum class ReaderCommandType { SEARCH_FORWARD, SEARCH_BACKWARD, GOTO_LINE, MARKDOWN_HEADING }
@@ -66,6 +75,7 @@ data class ReaderTabState(
 /** @author long */
 data class ReaderUiState(
     val screen: AppScreen = AppScreen.HOME,
+    val settingsPage: SettingsPage = SettingsPage.ROOT,
     val busy: Boolean = false,
     val message: String? = null,
     val browserTitle: String? = null,
@@ -79,6 +89,7 @@ data class ReaderUiState(
     val readerCommand: ReaderCommand? = null,
     val theme: ReaderTheme = ReaderTheme.HIGH_CONTRAST_LIGHT,
     val settings: ReaderSettings = ReaderSettings(),
+    val appUpdate: AppUpdateUiState = AppUpdateUiState(),
 ) {
     val activeTab: ReaderTabState? get() = tabs.firstOrNull { it.document.id == activeTabId }
     val document: OpenDocument? get() = activeTab?.document
@@ -108,7 +119,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private val preferences = application.getSharedPreferences(PREFERENCES_NAME, Application.MODE_PRIVATE)
     private val repository = DocumentRepository(application)
     private val importer = ProjectImporter(application)
+    private val updateRepository = AppUpdateRepository(application)
     private val commandIds = AtomicLong()
+    private val updateOperationActive = AtomicBoolean(false)
 
     private val initialTheme = ReaderTheme.fromPreference(preferences.getString(KEY_THEME, null))
     private val initialSettings = ReaderSettings(
@@ -367,7 +380,108 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun openSettings() {
-        _state.update { it.copy(screen = AppScreen.SETTINGS) }
+        _state.update { it.copy(screen = AppScreen.SETTINGS, settingsPage = SettingsPage.ROOT) }
+    }
+
+    fun openSettingsPage(page: SettingsPage) {
+        _state.update { it.copy(settingsPage = page) }
+    }
+
+    fun checkForUpdate() {
+        // 检查和下载共用同一把原子门闩，避免快速连点让多个协程覆盖状态或同时写入更新缓存。
+        if (!updateOperationActive.compareAndSet(false, true)) return
+        _state.update {
+            it.copy(
+                appUpdate = AppUpdateUiState(phase = AppUpdatePhase.CHECKING),
+            )
+        }
+        viewModelScope.launch {
+            try {
+                runCatching { updateRepository.fetchLatestRelease() }
+                    .onSuccess { release ->
+                        val available = isNewerVersion(release.versionName, BuildConfig.VERSION_NAME)
+                        _state.update {
+                            it.copy(
+                                appUpdate = AppUpdateUiState(
+                                    phase = if (available) AppUpdatePhase.AVAILABLE else AppUpdatePhase.UP_TO_DATE,
+                                    release = release,
+                                    dialogVisible = available,
+                                ),
+                            )
+                        }
+                    }
+                    .onFailure { error -> updateFailure("检查更新失败", error, release = null) }
+            } finally {
+                updateOperationActive.set(false)
+            }
+        }
+    }
+
+    fun downloadUpdate() {
+        val release = _state.value.appUpdate.release ?: return
+        if (!updateOperationActive.compareAndSet(false, true)) return
+        _state.update {
+            it.copy(
+                appUpdate = it.appUpdate.copy(
+                    phase = AppUpdatePhase.DOWNLOADING,
+                    progressPercent = 0,
+                    downloadedApk = null,
+                    errorMessage = null,
+                    dialogVisible = true,
+                ),
+            )
+        }
+        viewModelScope.launch {
+            try {
+                runCatching {
+                    val apk = updateRepository.downloadAndVerify(release) { progress ->
+                        _state.update { current ->
+                            val update = current.appUpdate
+                            if (update.phase == AppUpdatePhase.DOWNLOADING && update.release?.tagName == release.tagName) {
+                                current.copy(appUpdate = update.copy(progressPercent = progress))
+                            } else {
+                                current
+                            }
+                        }
+                    }
+                    try {
+                        AppUpdateInstaller.validateDownloadedApk(getApplication(), release, apk)
+                        apk
+                    } catch (error: Exception) {
+                        // 未通过身份校验的 APK 不能留给后续安装操作，也不应占用更新缓存。
+                        apk.delete()
+                        throw error
+                    }
+                }.onSuccess { apk ->
+                    _state.update {
+                        it.copy(
+                            appUpdate = it.appUpdate.copy(
+                                phase = AppUpdatePhase.READY,
+                                progressPercent = 100,
+                                downloadedApk = apk,
+                                dialogVisible = true,
+                            ),
+                        )
+                    }
+                }.onFailure { error -> updateFailure("下载更新失败", error, release) }
+            } finally {
+                updateOperationActive.set(false)
+            }
+        }
+    }
+
+    fun showUpdateDetails() {
+        _state.update { current ->
+            if (current.appUpdate.release == null) current else current.copy(appUpdate = current.appUpdate.copy(dialogVisible = true))
+        }
+    }
+
+    fun dismissUpdateDetails() {
+        _state.update { it.copy(appUpdate = it.appUpdate.copy(dialogVisible = false)) }
+    }
+
+    fun reportUpdateMessage(message: String) {
+        _state.update { it.copy(message = message) }
     }
 
     fun dismissMessage() {
@@ -393,7 +507,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             true
         }
         AppScreen.SETTINGS -> {
-            _state.update { it.copy(screen = AppScreen.HOME) }
+            _state.update {
+                if (it.settingsPage == SettingsPage.ROOT) {
+                    it.copy(screen = AppScreen.HOME)
+                } else {
+                    it.copy(settingsPage = SettingsPage.ROOT)
+                }
+            }
             true
         }
         AppScreen.HOME -> false
@@ -498,6 +618,21 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun showError(error: Throwable) {
         _state.update { it.copy(message = error.message ?: error.javaClass.simpleName) }
+    }
+
+    private fun updateFailure(prefix: String, error: Throwable, release: AppRelease?) {
+        val detail = error.message ?: error.javaClass.simpleName
+        val message = "$prefix：$detail"
+        _state.update {
+            it.copy(
+                message = message,
+                appUpdate = AppUpdateUiState(
+                    phase = AppUpdatePhase.FAILED,
+                    release = release,
+                    errorMessage = message,
+                ),
+            )
+        }
     }
 
     private companion object {
