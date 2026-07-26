@@ -6,7 +6,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import com.lonnnnnng.codereader.model.FileType
-import com.lonnnnnng.codereader.model.ReaderFontFamily
 import com.lonnnnnng.codereader.syntax.SyntaxRegistry
 import io.github.rosemoe.sora.event.ContentChangeEvent
 import io.github.rosemoe.sora.lang.EmptyLanguage
@@ -34,7 +33,6 @@ fun CodeEditorView(
     fileType: FileType,
     editable: Boolean,
     fontSizeSp: Float,
-    fontFamily: ReaderFontFamily,
     backgroundColorArgb: Int,
     wordWrap: Boolean,
     command: ReaderCommand?,
@@ -52,7 +50,7 @@ fun CodeEditorView(
                 isWordwrap = wordWrap
                 isLineNumberEnabled = true
                 colorScheme = SyntaxRegistry.createColorScheme()
-                applyReaderAppearance(fontFamily, backgroundColorArgb)
+                applyReaderAppearance(backgroundColorArgb)
                 searcher.setEnsureOccurrenceVisible(true)
                 subscribeEvent(ContentChangeEvent::class.java) { event, _ ->
                     if (!binding.suppressTextCallback &&
@@ -75,7 +73,7 @@ fun CodeEditorView(
                 replaceEditorText(editor, binding, text)
             }
             editor.setTextSize(fontSizeSp)
-            editor.applyReaderAppearance(fontFamily, backgroundColorArgb)
+            editor.applyReaderAppearance(backgroundColorArgb)
             editor.isWordwrap = wordWrap
             editor.editable = editable
             if (command != null && binding.commandId != command.id) {
@@ -87,15 +85,9 @@ fun CodeEditorView(
     )
 }
 
-private fun CodeEditor.applyReaderAppearance(fontFamily: ReaderFontFamily, backgroundColorArgb: Int) {
-    // 字体和背景必须直接落到 Sora 视图；只修改 Compose 外层不会影响编辑器自己的绘制画布。
-    setTypefaceText(
-        when (fontFamily) {
-            ReaderFontFamily.SYSTEM_SANS -> Typeface.DEFAULT
-            ReaderFontFamily.MONOSPACE -> Typeface.MONOSPACE
-            ReaderFontFamily.SERIF -> Typeface.SERIF
-        },
-    )
+private fun CodeEditor.applyReaderAppearance(backgroundColorArgb: Int) {
+    // 源码阅读统一跟随手机系统字体，避免额外字体包扩大 APK，也避免不同渲染内核出现字体不一致。
+    setTypefaceText(Typeface.DEFAULT)
     colorScheme.setColor(EditorColorScheme.WHOLE_BACKGROUND, backgroundColorArgb)
     colorScheme.setColor(EditorColorScheme.LINE_NUMBER_BACKGROUND, backgroundColorArgb)
 }

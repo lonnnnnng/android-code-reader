@@ -20,13 +20,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
-import com.lonnnnnng.codereader.model.ReaderFontFamily
 
 private class MarkdownDocumentBinding {
     var markdownText: String? = null
     var darkTheme: Boolean? = null
     var fontSizeSp: Float? = null
-    var fontFamily: ReaderFontFamily? = null
     var backgroundColorArgb: Int? = null
     var commandId: Long? = null
     var searchQuery: String? = null
@@ -57,7 +55,6 @@ fun MarkdownPreview(
     markdownText: String,
     darkTheme: Boolean,
     fontSizeSp: Float,
-    fontFamily: ReaderFontFamily,
     backgroundColorArgb: Int,
     command: ReaderCommand?,
     modifier: Modifier = Modifier,
@@ -97,14 +94,13 @@ fun MarkdownPreview(
         update = { webView ->
             val contentChanged = binding.markdownText != markdownText ||
                 binding.darkTheme != darkTheme || binding.fontSizeSp != fontSizeSp ||
-                binding.fontFamily != fontFamily || binding.backgroundColorArgb != backgroundColorArgb
+                binding.backgroundColorArgb != backgroundColorArgb
             if (contentChanged) {
                 val encodedMarkdown = Base64.encodeToString(markdownText.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
                 val html = htmlTemplate
                     .replace("__BODY_CLASS__", if (darkTheme) "dark" else "")
                     .replace("__DARK_THEME__", darkTheme.toString())
                     .replace("__FONT_SIZE__", fontSizeSp.toInt().toString())
-                    .replace("__FONT_FAMILY__", fontFamily.cssFamily)
                     .replace("__BACKGROUND_COLOR__", "#%06X".format(backgroundColorArgb and 0x00FFFFFF))
                     .replace("__MARKDOWN_BASE64__", encodedMarkdown)
 
@@ -120,7 +116,6 @@ fun MarkdownPreview(
                 binding.markdownText = markdownText
                 binding.darkTheme = darkTheme
                 binding.fontSizeSp = fontSizeSp
-                binding.fontFamily = fontFamily
                 binding.backgroundColorArgb = backgroundColorArgb
                 binding.searchQuery = null
             }

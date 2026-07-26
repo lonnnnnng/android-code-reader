@@ -1,43 +1,6 @@
 package com.lonnnnnng.codereader.model
 
 /**
- * 阅读字体同时作用于源码和 Markdown 正文，用户切换文件类型时不需要重复调整阅读习惯。
- *
- * @author long
- */
-enum class ReaderFontFamily(
-    val preferenceValue: String,
-    val displayName: String,
-    val description: String,
-    val cssFamily: String,
-) {
-    SYSTEM_SANS(
-        preferenceValue = "system_sans",
-        displayName = "系统字体",
-        description = "适合连续阅读 Markdown 正文",
-        cssFamily = "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-    ),
-    MONOSPACE(
-        preferenceValue = "monospace",
-        displayName = "等宽字体",
-        description = "代码字符对齐更清晰",
-        cssFamily = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-    ),
-    SERIF(
-        preferenceValue = "serif",
-        displayName = "衬线字体",
-        description = "适合长篇技术文档",
-        cssFamily = "ui-serif, Georgia, serif",
-    ),
-    ;
-
-    companion object {
-        fun fromPreference(value: String?): ReaderFontFamily =
-            entries.firstOrNull { it.preferenceValue == value } ?: SYSTEM_SANS
-    }
-}
-
-/**
  * 阅读背景为亮暗模式分别保存可读色值，切换主题时不会出现浅色背景配浅色文字的问题。
  *
  * @author long

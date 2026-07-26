@@ -20,7 +20,6 @@ import com.lonnnnnng.codereader.model.OpenDocument
 import com.lonnnnnng.codereader.model.ProjectSearchResult
 import com.lonnnnnng.codereader.model.ProjectTreeEntry
 import com.lonnnnnng.codereader.model.ReaderBackground
-import com.lonnnnnng.codereader.model.ReaderFontFamily
 import com.lonnnnnng.codereader.model.ReaderTheme
 import com.lonnnnnng.codereader.model.SourceEntry
 import com.lonnnnnng.codereader.syntax.SyntaxRegistry
@@ -51,7 +50,6 @@ data class ReaderCommand(
 data class ReaderSettings(
     val fontSizeSp: Float = 14f,
     val wordWrap: Boolean = false,
-    val fontFamily: ReaderFontFamily = ReaderFontFamily.SYSTEM_SANS,
     val background: ReaderBackground = ReaderBackground.FOLLOW_THEME,
     val appPalette: AppColorPalette = AppColorPalette.EMERALD,
 )
@@ -116,7 +114,6 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private val initialSettings = ReaderSettings(
         fontSizeSp = preferences.getFloat(KEY_FONT_SIZE, 14f).coerceIn(MIN_FONT_SIZE, MAX_FONT_SIZE),
         wordWrap = preferences.getBoolean(KEY_WORD_WRAP, false),
-        fontFamily = ReaderFontFamily.fromPreference(preferences.getString(KEY_FONT_FAMILY, null)),
         background = ReaderBackground.fromPreference(preferences.getString(KEY_READER_BACKGROUND, null)),
         appPalette = AppColorPalette.fromPreference(preferences.getString(KEY_APP_PALETTE, null)),
     )
@@ -346,11 +343,6 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         _state.update { it.copy(settings = it.settings.copy(wordWrap = enabled)) }
     }
 
-    fun setFontFamily(fontFamily: ReaderFontFamily) {
-        preferences.edit().putString(KEY_FONT_FAMILY, fontFamily.preferenceValue).apply()
-        _state.update { it.copy(settings = it.settings.copy(fontFamily = fontFamily)) }
-    }
-
     fun setReaderBackground(background: ReaderBackground) {
         preferences.edit().putString(KEY_READER_BACKGROUND, background.preferenceValue).apply()
         _state.update { it.copy(settings = it.settings.copy(background = background)) }
@@ -513,7 +505,6 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         const val KEY_THEME = "reader_theme"
         const val KEY_FONT_SIZE = "reader_font_size"
         const val KEY_WORD_WRAP = "reader_word_wrap"
-        const val KEY_FONT_FAMILY = "reader_font_family"
         const val KEY_READER_BACKGROUND = "reader_background"
         const val KEY_APP_PALETTE = "app_color_palette"
         const val KEY_RECENT_PROJECTS = "recent_projects"

@@ -7,7 +7,6 @@ import org.junit.Test
 class DisplayPreferencesTest {
     @Test
     fun `未知显示偏好回退到稳定默认值`() {
-        assertEquals(ReaderFontFamily.SYSTEM_SANS, ReaderFontFamily.fromPreference("removed-font"))
         assertEquals(ReaderBackground.FOLLOW_THEME, ReaderBackground.fromPreference("removed-background"))
         assertEquals(AppColorPalette.EMERALD, AppColorPalette.fromPreference("removed-palette"))
     }
