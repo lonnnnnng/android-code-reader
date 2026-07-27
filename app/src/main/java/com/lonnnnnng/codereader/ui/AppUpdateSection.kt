@@ -114,26 +114,46 @@ internal fun AppUpdateDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("${release.title} · ${formatBytes(release.apk.sizeBytes)}", style = MaterialTheme.typography.bodyMedium)
-                if (state.phase == AppUpdatePhase.DOWNLOADING) {
-                    LinearProgressIndicator(
-                        progress = { state.progressPercent / 100f },
-                        modifier = Modifier.fillMaxWidth().testTag("update-dialog-progress"),
-                    )
-                    Text("正在下载 ${state.progressPercent}%", style = MaterialTheme.typography.bodySmall)
-                }
+                Text(
+                    "安装前会校验 SHA-256、应用 ID、版本号和签名证书。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text("更新说明", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 Text(
                     release.notes.ifBlank { "此版本没有附加更新说明。" },
                     style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.heightIn(max = 280.dp).verticalScroll(rememberScrollState()),
+                    modifier = Modifier
+                        .heightIn(max = 280.dp)
+                        .verticalScroll(rememberScrollState())
+                        .testTag("update-release-notes"),
                 )
-                Text("安装前会校验 SHA-256、应用 ID、版本号和签名证书。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (state.phase == AppUpdatePhase.DOWNLOADING) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth().testTag("update-download-progress-area"),
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("正在下载", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("${state.progressPercent}%", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        }
+                        LinearProgressIndicator(
+                            progress = { state.progressPercent / 100f },
+                            modifier = Modifier.fillMaxWidth().testTag("update-dialog-progress"),
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
             when (state.phase) {
                 AppUpdatePhase.AVAILABLE -> Button(onClick = onDownload, modifier = Modifier.testTag("download-update-button")) { Text("下载更新") }
                 AppUpdatePhase.READY -> Button(onClick = onInstall, modifier = Modifier.testTag("install-update-button")) { Text("立即安装") }
-                AppUpdatePhase.DOWNLOADING -> TextButton(onClick = {}, enabled = false) { Text("下载中") }
+                AppUpdatePhase.DOWNLOADING -> TextButton(
+                    onClick = {},
+                    enabled = false,
+                    modifier = Modifier.testTag("update-downloading-button"),
+                ) { Text("下载中") }
                 else -> Unit
             }
         },

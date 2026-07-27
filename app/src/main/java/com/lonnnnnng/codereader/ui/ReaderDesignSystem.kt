@@ -174,5 +174,6 @@ internal object ReaderDimens {
     val pageHorizontal = 14.dp
     val sectionGap = 20.dp
     val itemGap = 8.dp
+    val topBarHeight = 60.dp
     val iconTouchTarget = 48.dp
 }

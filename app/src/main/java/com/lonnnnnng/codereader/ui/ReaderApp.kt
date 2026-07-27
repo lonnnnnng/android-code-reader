@@ -118,6 +118,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -465,7 +466,11 @@ private fun ProductHeader(
         shadowElevation = 1.dp,
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().height(68.dp).padding(horizontal = 8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(ReaderDimens.topBarHeight)
+                .padding(horizontal = 8.dp)
+                .testTag("product-header"),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (onBack != null) {
@@ -1432,7 +1437,11 @@ private fun ReaderScreen(
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 1.dp) {
             Row(
-            modifier = Modifier.fillMaxWidth().height(68.dp).padding(horizontal = 4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(ReaderDimens.topBarHeight)
+                    .padding(horizontal = 4.dp)
+                    .testTag("reader-header"),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 HeaderIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "返回", onBack)
@@ -2024,22 +2033,64 @@ private fun ThemeToggleButton(darkTheme: Boolean, onToggleTheme: () -> Unit) {
 }
 
 @Composable
-private fun GitCloneDialog(onDismiss: () -> Unit, onClone: (String) -> Unit) {
-    var url by remember { mutableStateOf("https://github.com/") }
+internal fun GitCloneDialog(onDismiss: () -> Unit, onClone: (String) -> Unit) {
+    var url by remember { mutableStateOf("") }
+    val normalizedUrl = url.trim()
+    val parsedUrl = remember(normalizedUrl) { Uri.parse(normalizedUrl) }
+    val validUrl = parsedUrl.scheme.equals("https", ignoreCase = true) &&
+        !parsedUrl.host.isNullOrBlank() && parsedUrl.pathSegments.isNotEmpty()
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("克隆 Git 仓库") },
+        modifier = Modifier.testTag("git-clone-dialog"),
+        title = {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.medium),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Outlined.CloudDownload,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                Text("克隆 Git 仓库", style = MaterialTheme.typography.titleLarge)
+            }
+        },
         text = {
             OutlinedTextField(
                 value = url,
                 onValueChange = { url = it },
-                label = { Text("HTTPS 地址") },
+                label = { Text("仓库地址") },
+                placeholder = { Text("https://github.com/owner/repository.git") },
+                supportingText = { Text("仅支持公开 HTTPS 仓库") },
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { if (validUrl) onClone(normalizedUrl) }),
+                modifier = Modifier.fillMaxWidth().testTag("git-url-input"),
             )
         },
-        confirmButton = { Button(onClick = { onClone(url) }, enabled = url.startsWith("https://")) { Text("克隆") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        confirmButton = {
+            Button(
+                onClick = { onClone(normalizedUrl) },
+                enabled = validUrl,
+                modifier = Modifier.testTag("git-clone-confirm"),
+            ) {
+                Text("克隆")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, modifier = Modifier.testTag("git-clone-cancel")) {
+                Text("取消")
+            }
+        },
     )
 }
 

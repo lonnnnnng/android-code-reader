@@ -134,6 +134,7 @@ class SettingsInstrumentedTest {
 
     @Test
     fun exitApplicationRequiresConfirmation() {
+        assertCompactHeader("product-header")
         composeRule.onNodeWithText("灵阅").assertIsDisplayed()
         composeRule.activityRule.scenario.onActivity { activity ->
             activity.onBackPressedDispatcher.onBackPressed()
@@ -155,6 +156,12 @@ class SettingsInstrumentedTest {
             composeRule.activityRule.scenario.state == Lifecycle.State.DESTROYED
         }
         assertEquals(Lifecycle.State.DESTROYED, composeRule.activityRule.scenario.state)
+    }
+
+    private fun assertCompactHeader(tag: String) {
+        val actualHeight = composeRule.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot.height
+        val expectedHeight = composeRule.activity.resources.displayMetrics.density * 60f
+        assertEquals("顶部标题栏应保持 60dp 紧凑高度", expectedHeight, actualHeight, 1.5f)
     }
 
     private fun selectDropdown(selectorTag: String, optionTag: String) {

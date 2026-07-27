@@ -16,6 +16,7 @@ import androidx.compose.ui.test.performTextInput
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.rosemoe.sora.widget.CodeEditor
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -35,6 +36,7 @@ class SampleProjectUiTest {
         composeRule.onNodeWithText("Program.cs").performClick()
         composeRule.onNodeWithText("C#").assertIsDisplayed()
         composeRule.onNodeWithText("只读").assertIsDisplayed()
+        assertCompactHeader("reader-header")
     }
 
     @Test
@@ -70,5 +72,11 @@ class SampleProjectUiTest {
             findCodeEditor(view.getChildAt(index))?.let { return it }
         }
         return null
+    }
+
+    private fun assertCompactHeader(tag: String) {
+        val actualHeight = composeRule.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot.height
+        val expectedHeight = composeRule.activity.resources.displayMetrics.density * 60f
+        assertEquals("阅读页标题栏应保持 60dp 紧凑高度", expectedHeight, actualHeight, 1.5f)
     }
 }
