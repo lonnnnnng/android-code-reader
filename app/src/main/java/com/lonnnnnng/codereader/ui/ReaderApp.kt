@@ -168,7 +168,7 @@ fun ReaderApp(viewModel: ReaderViewModel) {
             runCatching { startUpdateInstaller(apk) }
                 .onFailure { viewModel.reportUpdateMessage("无法打开系统安装器：${it.message ?: it.javaClass.simpleName}") }
         } else {
-            viewModel.reportUpdateMessage("需要允许源码阅读器安装更新")
+            viewModel.reportUpdateMessage("需要允许灵阅安装更新")
         }
     }
     val installUpdate: () -> Unit = {
@@ -312,7 +312,7 @@ fun ReaderApp(viewModel: ReaderViewModel) {
             AlertDialog(
                 onDismissRequest = { showExitConfirmation = false },
                 modifier = Modifier.testTag("exit-confirmation-dialog"),
-                title = { Text("退出源码阅读器？") },
+                title = { Text("退出灵阅？") },
                 text = { Text("未保存的修改不会自动保存，确定要退出应用吗？") },
                 confirmButton = {
                     TextButton(
@@ -364,7 +364,7 @@ private fun HomeScreen(
 ) {
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         ProductHeader(
-            title = "源码阅读器",
+            title = "灵阅",
             subtitle = "v${BuildConfig.VERSION_NAME}",
             actions = {
                 ThemeToggleButton(state.theme.isDark, onToggleTheme)

@@ -34,7 +34,7 @@ class AppReleaseParserInstrumentedTest {
         """
         {
           "tag_name": "v0.1.4",
-          "name": "源码阅读器 v0.1.4",
+          "name": "灵阅 v0.1.4",
           "body": "增加在线更新",
           "html_url": "https://github.com/lonnnnnng/android-code-reader/releases/tag/v0.1.4",
           "assets": [

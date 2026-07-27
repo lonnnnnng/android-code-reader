@@ -134,10 +134,12 @@ class SettingsInstrumentedTest {
 
     @Test
     fun exitApplicationRequiresConfirmation() {
+        composeRule.onNodeWithText("灵阅").assertIsDisplayed()
         composeRule.activityRule.scenario.onActivity { activity ->
             activity.onBackPressedDispatcher.onBackPressed()
         }
         composeRule.onNodeWithTag("exit-confirmation-dialog").assertIsDisplayed()
+        composeRule.onNodeWithText("退出灵阅？").assertIsDisplayed()
         composeRule.onNodeWithText("未保存的修改不会自动保存", substring = true).assertIsDisplayed()
 
         composeRule.onNodeWithTag("exit-cancel-button").performClick()
