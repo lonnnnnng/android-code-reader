@@ -5,6 +5,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -130,6 +131,33 @@ class SettingsInstrumentedTest {
         }
         composeRule.waitForIdle()
         composeRule.onNodeWithText("打开内容").assertIsDisplayed()
+    }
+
+    @Test
+    fun recentProjectsMenuUsesStablePageNavigation() {
+        composeRule.onNodeWithTag("recent-projects-menu").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("recent-projects-page").assertIsDisplayed()
+        composeRule.onNodeWithText("最近打开").assertIsDisplayed()
+
+        // 模拟器可能保留手工验收记录；通过产品自己的移除入口归一为空状态，再验证空页和持久化导航。
+        while (composeRule.onAllNodesWithContentDescription("移除最近项目").fetchSemanticsNodes().isNotEmpty()) {
+            composeRule.onAllNodesWithContentDescription("移除最近项目")[0].performClick()
+            composeRule.waitForIdle()
+        }
+        composeRule.onNodeWithTag("recent-projects-empty").assertIsDisplayed()
+        composeRule.onNodeWithText("暂无最近打开的项目").assertIsDisplayed()
+
+        composeRule.activityRule.scenario.onActivity { activity ->
+            activity.onBackPressedDispatcher.onBackPressed()
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("打开内容").assertIsDisplayed()
+        composeRule.onNodeWithTag("recent-projects-menu").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("recent-projects-empty").assertIsDisplayed()
+
+        composeRule.onNodeWithContentDescription("返回").performClick()
+        composeRule.onNodeWithText("打开内容").assertIsDisplayed()
+        composeRule.onNodeWithTag("recent-projects-menu").assertIsDisplayed()
     }
 
     @Test

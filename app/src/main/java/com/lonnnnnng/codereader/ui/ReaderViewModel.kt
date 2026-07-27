@@ -10,6 +10,7 @@ import com.lonnnnnng.codereader.BuildConfig
 import com.lonnnnnng.codereader.data.DocumentRepository
 import com.lonnnnnng.codereader.data.ProjectImporter
 import com.lonnnnnng.codereader.data.RecentProjectCodec
+import com.lonnnnnng.codereader.data.RecentProjectPolicy
 import com.lonnnnnng.codereader.data.RecentProjectRecord
 import com.lonnnnnng.codereader.domain.IndexedProjectEntry
 import com.lonnnnnng.codereader.domain.MarkdownHeading
@@ -38,7 +39,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /** @author long */
-enum class AppScreen { HOME, SETTINGS, BROWSER, READER }
+enum class AppScreen { HOME, RECENT, SETTINGS, BROWSER, READER }
 
 /** 设置采用一级分类、二级详情，返回时先退回分类页再离开设置。 @author long */
 enum class SettingsPage { ROOT, READING, APPEARANCE, UPDATE }
@@ -79,6 +80,7 @@ data class ReaderUiState(
     val busy: Boolean = false,
     val message: String? = null,
     val browserTitle: String? = null,
+    val browserBackTarget: AppScreen = AppScreen.HOME,
     val projectEntries: List<ProjectTreeEntry> = emptyList(),
     val expandedDirectoryIds: Set<String> = emptySet(),
     val projectSearchQuery: String = "",
@@ -130,7 +132,10 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         background = ReaderBackground.fromPreference(preferences.getString(KEY_READER_BACKGROUND, null)),
         appPalette = AppColorPalette.fromPreference(preferences.getString(KEY_APP_PALETTE, null)),
     )
-    private val initialRecentProjects = RecentProjectCodec.decode(preferences.getString(KEY_RECENT_PROJECTS, null))
+    private val initialRecentProjects = RecentProjectPolicy.normalize(
+        RecentProjectCodec.decode(preferences.getString(KEY_RECENT_PROJECTS, null)),
+        MAX_RECENT_PROJECTS,
+    )
     private val _state = MutableStateFlow(
         ReaderUiState(
             theme = initialTheme,
@@ -195,7 +200,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         when (project.kind) {
             "saf" -> {
                 val uri = Uri.parse(project.value)
-                openProjectRoot(EntryLocation.Saf(uri), repository.rootTitle(uri), project)
+                val title = repository.rootTitle(uri)
+                // SAF 目录可能在最近记录写入后被重命名，恢复成功时同步展示和持久化当前标题。
+                openProjectRoot(EntryLocation.Saf(uri), title, project.copy(title = title))
             }
             "local" -> {
                 val directory = File(project.value)
@@ -383,6 +390,10 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         _state.update { it.copy(screen = AppScreen.SETTINGS, settingsPage = SettingsPage.ROOT) }
     }
 
+    fun openRecentProjects() {
+        _state.update { it.copy(screen = AppScreen.RECENT) }
+    }
+
     fun openSettingsPage(page: SettingsPage) {
         _state.update { it.copy(settingsPage = page) }
     }
@@ -496,8 +507,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         AppScreen.BROWSER -> {
             _state.update {
                 it.copy(
-                    screen = AppScreen.HOME,
+                    screen = it.browserBackTarget,
                     browserTitle = null,
+                    browserBackTarget = AppScreen.HOME,
                     projectEntries = emptyList(),
                     expandedDirectoryIds = emptySet(),
                     projectSearchResults = emptyList(),
@@ -514,6 +526,10 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     it.copy(settingsPage = SettingsPage.ROOT)
                 }
             }
+            true
+        }
+        AppScreen.RECENT -> {
+            _state.update { it.copy(screen = AppScreen.HOME) }
             true
         }
         AppScreen.HOME -> false
@@ -536,9 +552,12 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val index = repository.indexProject(root)
         if (recent != null) rememberRecentProject(recent)
         _state.update {
+            // 从最近打开进入项目后，返回必须回到列表，避免用户丢失刚才浏览历史的位置。
+            val backTarget = if (it.screen == AppScreen.RECENT) AppScreen.RECENT else AppScreen.HOME
             it.copy(
                 screen = AppScreen.BROWSER,
                 browserTitle = title,
+                browserBackTarget = backTarget,
                 projectEntries = index,
                 expandedDirectoryIds = emptySet(),
                 projectSearchQuery = "",
@@ -599,8 +618,11 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun rememberRecentProject(project: RecentProjectRecord) {
-        val updated = listOf(project) + _state.value.recentProjects.filterNot { it.kind == project.kind && it.value == project.value }
-        persistRecentProjects(updated.take(MAX_RECENT_PROJECTS))
+        val updated = RecentProjectPolicy.normalize(
+            listOf(project) + _state.value.recentProjects,
+            MAX_RECENT_PROJECTS,
+        )
+        persistRecentProjects(updated)
     }
 
     private fun persistRecentProjects(projects: List<RecentProjectRecord>) {

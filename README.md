@@ -9,7 +9,7 @@
 - ZIP 安全解压和项目浏览。
 - 公共 HTTPS Git 仓库浅克隆；克隆弹框使用统一的应用配色、仓库地址示例和 HTTPS 地址校验。
 - 最多 5000 条目的可折叠项目树，目录、ZIP、Git 和内置 Markdown 示例使用同一套项目索引。
-- 文件内搜索、项目全局搜索、快速文件切换和最多 6 个可恢复的最近项目。
+- 文件内搜索、项目全局搜索和快速文件切换；首页“最近打开”菜单集中管理最多 6 个可恢复项目。
 - 多文件标签页；每个标签页独立保留草稿、编辑状态和 Markdown 预览状态。
 - 首页、设置、项目和阅读页统一使用 60dp 紧凑标题栏，同时保留 48dp 图标触控区域；阅读页采用文件名/类型/状态两级标题、编辑器式活动标签和 48dp 上下文工具栏，搜索栏原位展开以减少正文区域跳动。
 - Sora Editor + TextMate 语法高亮。
@@ -23,7 +23,7 @@
 - 超过 1 MB 的文件自动进入只读分段模式，每次追加约 256K 字符，避免一次性加载超大文本。
 - Debug 构建包含 78 个语法覆盖文件；Release APK 不携带 QA 工具和多语言测试工程，只保留一个 Markdown 功能示例。
 - 覆盖 Swift、Objective-C、Scala、Dart、Terraform/HCL、Protobuf、GraphQL、Prisma、CMake、Razor、Svelte、Astro、MDX、Nginx、Go Module、ProGuard 等工程文件。
-- Pixel_9 模拟器已通过 17 项 instrumentation 和 78/78 语法 token 验证；当前项目禁止使用 Redmi 真机做验证。
+- Pixel_9 模拟器已通过 18 项 instrumentation 和 78/78 语法 token 验证；当前项目禁止使用 Redmi 真机做验证。
 
 模拟器验证结果见 [模拟器验证报告](docs/模拟器验证报告.md)。
 

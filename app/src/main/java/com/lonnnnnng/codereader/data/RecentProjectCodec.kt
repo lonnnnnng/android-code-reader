@@ -10,6 +10,24 @@ data class RecentProjectRecord(
     val value: String,
 )
 
+/**
+ * 最近项目只保留应用能够稳定恢复的来源，并用来源地址作为项目唯一标识。
+ *
+ * @author long
+ */
+object RecentProjectPolicy {
+    private val recoverableKinds = setOf("saf", "local")
+
+    fun normalize(projects: List<RecentProjectRecord>, maxCount: Int): List<RecentProjectRecord> {
+        // 偏好数据可能来自旧版本或异常中断；加载前收口来源和唯一键，避免重复列表 key 让页面崩溃。
+        return projects.asSequence()
+            .filter { it.kind in recoverableKinds && it.value.isNotBlank() }
+            .distinctBy { it.kind to it.value }
+            .take(maxCount.coerceAtLeast(0))
+            .toList()
+    }
+}
+
 /** @author long */
 object RecentProjectCodec {
     fun encode(projects: List<RecentProjectRecord>): String = projects.joinToString("\n") { project ->

@@ -236,10 +236,15 @@ fun ReaderApp(viewModel: ReaderViewModel) {
                             onOpenZip = { openZip.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
                             onCloneGit = { showGitDialog = true },
                             onOpenBundledProject = viewModel::openBundledProject,
-                            onOpenRecent = viewModel::openRecentProject,
-                            onRemoveRecent = viewModel::removeRecentProject,
+                            onOpenRecentProjects = viewModel::openRecentProjects,
                             onOpenSettings = viewModel::openSettings,
                             onToggleTheme = viewModel::toggleTheme,
+                        )
+                            AppScreen.RECENT -> RecentProjectsScreen(
+                            state = state,
+                            onBack = viewModel::navigateBack,
+                            onOpenRecent = viewModel::openRecentProject,
+                            onRemoveRecent = viewModel::removeRecentProject,
                         )
                             AppScreen.SETTINGS -> SettingsScreen(
                             state = state,
@@ -358,8 +363,7 @@ private fun HomeScreen(
     onOpenZip: () -> Unit,
     onCloneGit: () -> Unit,
     onOpenBundledProject: (String, String) -> Unit,
-    onOpenRecent: (RecentProjectRecord) -> Unit,
-    onRemoveRecent: (RecentProjectRecord) -> Unit,
+    onOpenRecentProjects: () -> Unit,
     onOpenSettings: () -> Unit,
     onToggleTheme: () -> Unit,
 ) {
@@ -395,35 +399,13 @@ private fun HomeScreen(
                         onOpenZip = onOpenZip,
                         onCloneGit = onCloneGit,
                     )
-                }
-            }
-
-            if (state.recentProjects.isNotEmpty()) {
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        HomeSectionHeader("最近项目", "${state.recentProjects.size} 个")
-                        Surface(
-                            color = MaterialTheme.colorScheme.surface,
-                            shape = MaterialTheme.shapes.medium,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                        ) {
-                            Column {
-                                state.recentProjects.forEachIndexed { index, project ->
-                                    RecentProjectRow(
-                                        project = project,
-                                        onOpen = { onOpenRecent(project) },
-                                        onRemove = { onRemoveRecent(project) },
-                                    )
-                                    if (index < state.recentProjects.lastIndex) {
-                                        HorizontalDivider(
-                                            modifier = Modifier.padding(start = 60.dp),
-                                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    HomeFeatureRow(
+                        title = "最近打开",
+                        summary = if (state.recentProjects.isEmpty()) "暂无项目记录" else "${state.recentProjects.size} 个可恢复项目",
+                        icon = Icons.Outlined.History,
+                        modifier = Modifier.testTag("recent-projects-menu"),
+                        onClick = onOpenRecentProjects,
+                    )
                 }
             }
 
@@ -448,6 +430,77 @@ private fun HomeScreen(
                             icon = Icons.Outlined.Code,
                         ) { onOpenBundledProject("samples", "sample-project") }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentProjectsScreen(
+    state: ReaderUiState,
+    onBack: () -> Unit,
+    onOpenRecent: (RecentProjectRecord) -> Unit,
+    onRemoveRecent: (RecentProjectRecord) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .testTag("recent-projects-page"),
+    ) {
+        ProductHeader(
+            title = "最近打开",
+            subtitle = if (state.recentProjects.isEmpty()) "暂无项目" else "${state.recentProjects.size} 个项目",
+            onBack = onBack,
+        )
+        if (state.recentProjects.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(24.dp).testTag("recent-projects-empty"),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(8.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Outlined.History,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                    }
+                    Text("暂无最近打开的项目", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().testTag("recent-projects-list"),
+                contentPadding = PaddingValues(
+                    start = ReaderDimens.pageHorizontal,
+                    top = 12.dp,
+                    end = ReaderDimens.pageHorizontal,
+                    bottom = 28.dp,
+                ),
+            ) {
+                items(
+                    items = state.recentProjects,
+                    key = { project -> "${project.kind}:${project.value}" },
+                ) { project ->
+                    RecentProjectRow(
+                        project = project,
+                        onOpen = { onOpenRecent(project) },
+                        onRemove = { onRemoveRecent(project) },
+                    )
+                    HorizontalDivider(
+                        modifier = Modifier.padding(start = 60.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f),
+                    )
                 }
             }
         }
@@ -617,9 +670,16 @@ private fun RecentProjectRow(project: RecentProjectRecord, onOpen: () -> Unit, o
 }
 
 @Composable
-private fun HomeFeatureRow(title: String, summary: String, icon: ImageVector, onClick: () -> Unit) {
+private fun HomeFeatureRow(
+    title: String,
+    summary: String,
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
     Surface(
         onClick = onClick,
+        modifier = modifier,
         color = MaterialTheme.colorScheme.surface,
         shape = MaterialTheme.shapes.medium,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
