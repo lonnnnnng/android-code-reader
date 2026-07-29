@@ -14,6 +14,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.lifecycle.Lifecycle
+import com.lonnnnnng.codereader.ui.ReaderDimens
 import org.junit.Rule
 import org.junit.Test
 import org.junit.Assert.assertEquals
@@ -188,8 +189,8 @@ class SettingsInstrumentedTest {
 
     private fun assertCompactHeader(tag: String) {
         val actualHeight = composeRule.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot.height
-        val expectedHeight = composeRule.activity.resources.displayMetrics.density * 60f
-        assertEquals("顶部标题栏应保持 60dp 紧凑高度", expectedHeight, actualHeight, 1.5f)
+        val expectedHeight = composeRule.activity.resources.displayMetrics.density * ReaderDimens.topBarHeight.value
+        assertEquals("顶部标题栏应跟随统一紧凑高度", expectedHeight, actualHeight, 1.5f)
     }
 
     private fun selectDropdown(selectorTag: String, optionTag: String) {

@@ -156,7 +156,7 @@ internal val ReaderTypography = Typography(
     ),
     bodyLarge = TextStyle(fontSize = 15.sp, lineHeight = 22.sp, letterSpacing = 0.sp),
     bodyMedium = TextStyle(fontSize = 13.sp, lineHeight = 18.sp, letterSpacing = 0.sp),
-    bodySmall = TextStyle(fontSize = 11.sp, lineHeight = 16.sp, letterSpacing = 0.sp),
+    bodySmall = TextStyle(fontSize = 12.sp, lineHeight = 17.sp, letterSpacing = 0.sp),
     labelLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.sp),
     labelMedium = TextStyle(fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 15.sp, letterSpacing = 0.sp),
     labelSmall = TextStyle(fontWeight = FontWeight.Medium, fontSize = 10.sp, lineHeight = 14.sp, letterSpacing = 0.sp),
@@ -171,9 +171,15 @@ internal val ReaderShapes = Shapes(
 )
 
 internal object ReaderDimens {
-    val pageHorizontal = 14.dp
-    val sectionGap = 20.dp
+    // 页面、列表和工具区共同使用 4dp 基础节奏，避免同类控件各自形成一套疏密标准。 @author long
+    val pageHorizontal = 16.dp
+    val pageVertical = 12.dp
+    val sectionGap = 18.dp
     val itemGap = 8.dp
-    val topBarHeight = 60.dp
+    val topBarHeight = 56.dp
     val iconTouchTarget = 48.dp
+    val iconBadge = 36.dp
+    val compactIconBadge = 32.dp
+    val listRowMinHeight = 64.dp
+    val compactRowMinHeight = 52.dp
 }

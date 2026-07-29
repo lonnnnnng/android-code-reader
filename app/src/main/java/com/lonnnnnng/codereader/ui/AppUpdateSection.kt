@@ -1,6 +1,5 @@
 package com.lonnnnnng.codereader.ui
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,7 +14,6 @@ import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -53,18 +51,12 @@ internal fun AppUpdateSettingRow(
     }
     Surface(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp).testTag("update-setting"),
-        color = MaterialTheme.colorScheme.surface,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
         shape = MaterialTheme.shapes.medium,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Icon(
-                    Icons.Outlined.SystemUpdate,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(26.dp),
-                )
+                ReaderIconBadge(Icons.Outlined.SystemUpdate, ReaderBadgeTone.SECONDARY)
                 Column(modifier = Modifier.weight(1f)) {
                     Text("应用更新", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                     Text(
@@ -106,9 +98,9 @@ internal fun AppUpdateDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(
+            ReaderDialogTitle(
                 if (state.phase == AppUpdatePhase.READY) "更新已下载" else "发现新版本 v${release.versionName}",
-                style = MaterialTheme.typography.titleLarge,
+                Icons.Outlined.SystemUpdate,
             )
         },
         text = {

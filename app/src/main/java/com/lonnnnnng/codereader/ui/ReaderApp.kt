@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -384,14 +385,14 @@ private fun HomeScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
                 start = ReaderDimens.pageHorizontal,
-                top = 16.dp,
+                top = ReaderDimens.pageVertical,
                 end = ReaderDimens.pageHorizontal,
-                bottom = 28.dp,
+                bottom = 24.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(ReaderDimens.sectionGap),
         ) {
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(ReaderDimens.itemGap)) {
                     HomeSectionHeader("打开内容", "选择来源")
                     HomeSourceGrid(
                         onOpenFile = onOpenFile,
@@ -410,7 +411,7 @@ private fun HomeScreen(
             }
 
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(ReaderDimens.itemGap)) {
                     HomeSectionHeader("示例", "离线可用")
                     HomeFeatureRow(
                         title = "Markdown 功能示例",
@@ -422,7 +423,7 @@ private fun HomeScreen(
 
             if (BuildConfig.DEBUG) {
                 item {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(ReaderDimens.itemGap)) {
                         HomeSectionHeader("开发工具", "Debug")
                         HomeFeatureRow(
                             title = "内置测试项目",
@@ -463,18 +464,7 @@ private fun RecentProjectsScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(8.dp)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            Icons.Outlined.History,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
-                    }
+                    ReaderIconBadge(Icons.Outlined.History, ReaderBadgeTone.SECONDARY)
                     Text("暂无最近打开的项目", style = MaterialTheme.typography.bodyMedium)
                 }
             }
@@ -516,51 +506,50 @@ private fun ProductHeader(
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 1.dp,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(ReaderDimens.topBarHeight)
-                .padding(horizontal = 8.dp)
-                .testTag("product-header"),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (onBack != null) {
-                HeaderIconButton(
-                    icon = Icons.AutoMirrored.Outlined.ArrowBack,
-                    contentDescription = "返回",
-                    onClick = onBack,
-                )
-            } else {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(ReaderDimens.topBarHeight)
+                    .padding(horizontal = 4.dp)
+                    .testTag("product-header"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Box(
                     modifier = Modifier
-                        .padding(start = 8.dp, end = 12.dp)
-                        .size(40.dp)
-                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(8.dp)),
+                        .size(ReaderDimens.iconTouchTarget),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        Icons.Outlined.Code,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
+                    if (onBack != null) {
+                        HeaderIconButton(
+                            icon = Icons.AutoMirrored.Outlined.ArrowBack,
+                            contentDescription = "返回",
+                            onClick = onBack,
+                        )
+                    } else {
+                        ReaderIconBadge(
+                            icon = Icons.Outlined.Code,
+                            tone = ReaderBadgeTone.PRIMARY,
+                        )
+                    }
                 }
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (subtitle != null) {
-                    Text(
-                        subtitle,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontFamily = FontFamily.Monospace,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
+                    Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (subtitle != null) {
+                        Text(
+                            subtitle,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
+                Row(horizontalArrangement = Arrangement.spacedBy(0.dp), content = actions)
             }
-            Row(content = actions)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f))
         }
     }
 }
@@ -613,23 +602,16 @@ private fun SourceActionTile(
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier.height(94.dp),
-        color = MaterialTheme.colorScheme.surface,
+        modifier = modifier.height(82.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
         shape = MaterialTheme.shapes.medium,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Box(
-                modifier = Modifier.size(34.dp).background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(6.dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    icon,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            ReaderIconBadge(icon = icon, tone = ReaderBadgeTone.PRIMARY)
             Column {
                 Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
                 Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -640,33 +622,19 @@ private fun SourceActionTile(
 
 @Composable
 private fun RecentProjectRow(project: RecentProjectRecord, onOpen: () -> Unit, onRemove: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier.size(36.dp).background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(6.dp)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                if (project.kind == "saf") Icons.Outlined.FolderOpen else Icons.Outlined.Archive,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier.size(20.dp),
-            )
-        }
-        Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
-            Text(project.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(
-                if (project.kind == "saf") "系统目录" else "本地导入",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        IconButton(onClick = onRemove, modifier = Modifier.size(ReaderDimens.iconTouchTarget)) {
-            Icon(Icons.Outlined.DeleteOutline, contentDescription = "移除最近项目", modifier = Modifier.size(20.dp))
-        }
-    }
+    ReaderListRow(
+        title = project.title,
+        summary = if (project.kind == "saf") "系统目录" else "本地导入",
+        icon = if (project.kind == "saf") Icons.Outlined.FolderOpen else Icons.Outlined.Archive,
+        tone = ReaderBadgeTone.SECONDARY,
+        filled = false,
+        onClick = onOpen,
+        trailing = {
+            IconButton(onClick = onRemove, modifier = Modifier.size(ReaderDimens.iconTouchTarget)) {
+                Icon(Icons.Outlined.DeleteOutline, contentDescription = "移除最近项目", modifier = Modifier.size(20.dp))
+            }
+        },
+    )
 }
 
 @Composable
@@ -677,25 +645,93 @@ private fun HomeFeatureRow(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    Surface(
+    ReaderListRow(
+        title = title,
+        summary = summary,
+        icon = icon,
+        tone = ReaderBadgeTone.TERTIARY,
         onClick = onClick,
         modifier = modifier,
-        color = MaterialTheme.colorScheme.surface,
-        shape = MaterialTheme.shapes.medium,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.tertiaryContainer, RoundedCornerShape(6.dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer)
-            }
-            Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+        trailing = {
             Icon(Icons.Outlined.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        },
+    )
+}
+
+internal enum class ReaderBadgeTone { PRIMARY, SECONDARY, TERTIARY }
+
+@Composable
+internal fun ReaderIconBadge(
+    icon: ImageVector,
+    tone: ReaderBadgeTone,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
+) {
+    val container = when (tone) {
+        ReaderBadgeTone.PRIMARY -> MaterialTheme.colorScheme.primaryContainer
+        ReaderBadgeTone.SECONDARY -> MaterialTheme.colorScheme.secondaryContainer
+        ReaderBadgeTone.TERTIARY -> MaterialTheme.colorScheme.tertiaryContainer
+    }
+    val content = when (tone) {
+        ReaderBadgeTone.PRIMARY -> MaterialTheme.colorScheme.onPrimaryContainer
+        ReaderBadgeTone.SECONDARY -> MaterialTheme.colorScheme.onSecondaryContainer
+        ReaderBadgeTone.TERTIARY -> MaterialTheme.colorScheme.onTertiaryContainer
+    }
+    Box(
+        modifier = modifier
+            .size(if (compact) ReaderDimens.compactIconBadge else ReaderDimens.iconBadge)
+            .background(container, MaterialTheme.shapes.small),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = content,
+            modifier = Modifier.size(if (compact) 18.dp else 20.dp),
+        )
+    }
+}
+
+@Composable
+private fun ReaderListRow(
+    title: String,
+    summary: String,
+    icon: ImageVector,
+    tone: ReaderBadgeTone,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    filled: Boolean = true,
+    trailing: @Composable (() -> Unit)? = null,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        color = if (filled) MaterialTheme.colorScheme.surfaceContainerLow else ComposeColor.Transparent,
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().heightIn(min = ReaderDimens.listRowMinHeight).padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            ReaderIconBadge(icon = icon, tone = tone)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            trailing?.invoke()
         }
     }
 }
@@ -819,37 +855,17 @@ private fun SettingsCategoryRow(
     testTag: String,
     onClick: () -> Unit,
 ) {
-    Surface(
+    ReaderListRow(
+        title = title,
+        summary = summary,
+        icon = icon,
+        tone = ReaderBadgeTone.SECONDARY,
         onClick = onClick,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp).testTag(testTag),
-        color = MaterialTheme.colorScheme.surface,
-        shape = MaterialTheme.shapes.medium,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Box(
-                modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(6.dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(22.dp))
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                Text(
-                    summary,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+        trailing = {
             Icon(Icons.Outlined.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
+        },
+    )
 }
 
 @Composable
@@ -899,9 +915,8 @@ private fun ReadingSettingsList(
             item {
                 Surface(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                    color = MaterialTheme.colorScheme.surface,
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
                     shape = MaterialTheme.shapes.medium,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 ) {
                     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -956,9 +971,8 @@ private fun ReadingSettingsList(
                         .padding(horizontal = 16.dp, vertical = 5.dp)
                         .clickable { onSetWordWrap(!settings.wordWrap) }
                         .testTag("word-wrap-setting"),
-                    color = MaterialTheme.colorScheme.surface,
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
                     shape = MaterialTheme.shapes.medium,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
@@ -968,7 +982,7 @@ private fun ReadingSettingsList(
                             Text("源码自动换行", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                             Text("长行不再需要横向滚动", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Switch(checked = settings.wordWrap, onCheckedChange = onSetWordWrap)
+                        Switch(checked = settings.wordWrap, onCheckedChange = null)
                     }
                 }
             }
@@ -1108,7 +1122,6 @@ private fun SettingsPreview(
     Surface(
         modifier = modifier.testTag("settings-preview"),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
-        shadowElevation = 1.dp,
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(start = 14.dp, top = 8.dp, end = 14.dp, bottom = 10.dp)) {
             HomeSectionHeader("实时预览", "Reader.kt")
@@ -1163,7 +1176,7 @@ private fun secondarySyntaxColor(darkTheme: Boolean): ComposeColor =
 
 @Composable
 private fun SettingsSectionHeader(title: String, summary: String) {
-    Column(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 20.dp, end = 16.dp, bottom = 7.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 7.dp)) {
         Text(title, style = MaterialTheme.typography.titleMedium)
         Text(
             summary,
@@ -1348,7 +1361,10 @@ private fun ProjectTreeRow(
         shape = MaterialTheme.shapes.small,
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 6.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = ReaderDimens.compactRowMinHeight)
+                .padding(start = 6.dp, end = 10.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Spacer(Modifier.width((indexed.depth * 16).dp))
@@ -1379,27 +1395,17 @@ private fun ProjectTreeRow(
 
 @Composable
 private fun FileGlyph(isDirectory: Boolean, fileType: FileType, modifier: Modifier = Modifier) {
-    val background = when {
-        isDirectory -> MaterialTheme.colorScheme.tertiaryContainer
-        fileType.markdown -> MaterialTheme.colorScheme.secondaryContainer
-        else -> MaterialTheme.colorScheme.primaryContainer
+    val tone = when {
+        isDirectory -> ReaderBadgeTone.TERTIARY
+        fileType.markdown -> ReaderBadgeTone.SECONDARY
+        else -> ReaderBadgeTone.PRIMARY
     }
-    val foreground = when {
-        isDirectory -> MaterialTheme.colorScheme.onTertiaryContainer
-        fileType.markdown -> MaterialTheme.colorScheme.onSecondaryContainer
-        else -> MaterialTheme.colorScheme.onPrimaryContainer
-    }
-    Box(
-        modifier = modifier.size(36.dp).background(background, RoundedCornerShape(6.dp)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            if (isDirectory) Icons.Outlined.Folder else Icons.AutoMirrored.Outlined.InsertDriveFile,
-            contentDescription = null,
-            tint = foreground,
-            modifier = Modifier.size(20.dp),
-        )
-    }
+    ReaderIconBadge(
+        icon = if (isDirectory) Icons.Outlined.Folder else Icons.AutoMirrored.Outlined.InsertDriveFile,
+        tone = tone,
+        modifier = modifier,
+        compact = true,
+    )
 }
 
 @Composable
@@ -1421,17 +1427,11 @@ private fun ProjectSearchResults(results: List<ProjectSearchResult>, onOpen: (Pr
         items(results, key = { "${it.path}:${it.line}:${it.excerpt}" }) { result ->
             Surface(
                 onClick = { onOpen(result) },
-                color = MaterialTheme.colorScheme.surface,
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
                 shape = MaterialTheme.shapes.medium,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             ) {
                 Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.Top) {
-                    Box(
-                        modifier = Modifier.size(34.dp).background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(6.dp)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(Icons.Outlined.FindInPage, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(19.dp))
-                    }
+                    ReaderIconBadge(Icons.Outlined.FindInPage, ReaderBadgeTone.SECONDARY, compact = true)
                     Column(modifier = Modifier.weight(1f).padding(start = 10.dp)) {
                         Text(
                             "${result.path}:${result.line}",
@@ -1495,82 +1495,85 @@ private fun ReaderScreen(
     val displayPath = projectPath?.takeUnless { it == document.name }
 
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 1.dp) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(ReaderDimens.topBarHeight)
-                    .padding(horizontal = 4.dp)
-                    .testTag("reader-header"),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                HeaderIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "返回", onBack)
-                FileGlyph(isDirectory = false, fileType = document.fileType)
-                Column(modifier = Modifier.weight(1f).padding(start = 10.dp, end = 4.dp)) {
-                    Text(
-                        text = document.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Row(
-                        modifier = Modifier.padding(top = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
+        Surface(color = MaterialTheme.colorScheme.surface) {
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(ReaderDimens.topBarHeight)
+                        .padding(horizontal = 4.dp)
+                        .testTag("reader-header"),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    HeaderIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "返回", onBack)
+                    FileGlyph(isDirectory = false, fileType = document.fileType)
+                    Column(modifier = Modifier.weight(1f).padding(start = 8.dp, end = 2.dp)) {
                         Text(
-                            document.fileType.displayName,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontFamily = FontFamily.Monospace,
+                            text = document.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
-                        ReaderStatusBadge(documentStatus, emphasized = state.dirty || state.editable)
-                        if (displayPath != null) {
+                        Row(
+                            modifier = Modifier.padding(top = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Text(
-                                text = displayPath,
+                                document.fileType.displayName,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f).padding(start = 6.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                            ReaderStatusBadge(documentStatus, emphasized = state.dirty || state.editable)
+                            if (displayPath != null) {
+                                Text(
+                                    text = displayPath,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f).padding(start = 6.dp),
+                                )
+                            }
+                        }
+                    }
+                    HeaderIconButton(
+                        Icons.Outlined.Search,
+                        if (searchVisible) "关闭文件内搜索" else "文件内搜索",
+                    ) { searchVisible = !searchVisible }
+                    Box {
+                        HeaderIconButton(Icons.Outlined.MoreVert, "更多") { menuExpanded = true }
+                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            if (!state.markdownPreview) {
+                                DropdownMenuItem(
+                                    text = { Text("跳转到行") },
+                                    leadingIcon = { Icon(Icons.Outlined.UnfoldMore, contentDescription = null) },
+                                    onClick = { menuExpanded = false; showGotoLine = true },
+                                )
+                            }
+                            if (document.fileType.markdown && state.markdownPreview && state.markdownHeadings.isNotEmpty()) {
+                                DropdownMenuItem(
+                                    text = { Text("Markdown 目录") },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Outlined.List, contentDescription = null) },
+                                    onClick = { menuExpanded = false; showOutline = true },
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("阅读设置") },
+                                leadingIcon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
+                                onClick = { menuExpanded = false; showSettings = true },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(if (state.theme.isDark) "切换为亮色" else "切换为暗色") },
+                                leadingIcon = {
+                                    Icon(if (state.theme.isDark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode, contentDescription = null)
+                                },
+                                onClick = { menuExpanded = false; onToggleTheme() },
                             )
                         }
                     }
                 }
-                HeaderIconButton(
-                    Icons.Outlined.Search,
-                    if (searchVisible) "关闭文件内搜索" else "文件内搜索",
-                ) { searchVisible = !searchVisible }
-                Box {
-                    HeaderIconButton(Icons.Outlined.MoreVert, "更多") { menuExpanded = true }
-                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                        if (!state.markdownPreview) {
-                            DropdownMenuItem(
-                                text = { Text("跳转到行") },
-                                leadingIcon = { Icon(Icons.Outlined.UnfoldMore, contentDescription = null) },
-                                onClick = { menuExpanded = false; showGotoLine = true },
-                            )
-                        }
-                        if (document.fileType.markdown && state.markdownPreview && state.markdownHeadings.isNotEmpty()) {
-                            DropdownMenuItem(
-                                text = { Text("Markdown 目录") },
-                                leadingIcon = { Icon(Icons.AutoMirrored.Outlined.List, contentDescription = null) },
-                                onClick = { menuExpanded = false; showOutline = true },
-                            )
-                        }
-                        DropdownMenuItem(
-                            text = { Text("阅读设置") },
-                            leadingIcon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
-                            onClick = { menuExpanded = false; showSettings = true },
-                        )
-                        DropdownMenuItem(
-                            text = { Text(if (state.theme.isDark) "切换为亮色" else "切换为暗色") },
-                            leadingIcon = {
-                                Icon(if (state.theme.isDark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode, contentDescription = null)
-                            },
-                            onClick = { menuExpanded = false; onToggleTheme() },
-                        )
-                    }
-                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f))
             }
         }
 
@@ -1722,7 +1725,7 @@ private fun ReaderTabs(state: ReaderUiState, onSwitch: (String) -> Unit, onClose
     }
     Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
         LazyRow(
-            modifier = Modifier.fillMaxWidth().height(52.dp),
+            modifier = Modifier.fillMaxWidth().height(48.dp),
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 5.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             state = listState,
@@ -1731,12 +1734,11 @@ private fun ReaderTabs(state: ReaderUiState, onSwitch: (String) -> Unit, onClose
                 val active = tab.document.id == state.activeTabId
                 Surface(
                     modifier = Modifier
-                        .height(42.dp)
+                        .height(38.dp)
                         .widthIn(min = 108.dp, max = 220.dp)
                         .clickable { onSwitch(tab.document.id) },
-                    color = if (active) MaterialTheme.colorScheme.surface else ComposeColor.Transparent,
+                    color = if (active) MaterialTheme.colorScheme.surfaceContainerHigh else ComposeColor.Transparent,
                     shape = MaterialTheme.shapes.small,
-                    border = if (active) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null,
                 ) {
                     Box {
                         Row(
@@ -1761,7 +1763,7 @@ private fun ReaderTabs(state: ReaderUiState, onSwitch: (String) -> Unit, onClose
                                 )
                             }
                             if (active) {
-                                IconButton(onClick = { onClose(tab) }, modifier = Modifier.size(42.dp)) {
+                                IconButton(onClick = { onClose(tab) }, modifier = Modifier.size(38.dp)) {
                                     Icon(
                                         Icons.Outlined.Close,
                                         contentDescription = "关闭 ${tab.document.name}",
@@ -1865,7 +1867,7 @@ private fun ReaderActionBar(
 ) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
         Row(
-            modifier = Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 8.dp),
+            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -1923,7 +1925,7 @@ private fun ReaderActionButton(
     }
     IconButton(
         onClick = onClick,
-        modifier = Modifier.size(48.dp),
+        modifier = Modifier.size(ReaderDimens.iconTouchTarget),
         colors = IconButtonDefaults.iconButtonColors(
             containerColor = containerColor,
             contentColor = contentColor,
@@ -2069,7 +2071,7 @@ private fun GotoLineDialog(onDismiss: () -> Unit, onGoto: (Int) -> Unit) {
     val line = lineText.toIntOrNull()
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("跳转到行") },
+        title = { ReaderDialogTitle("跳转到行", Icons.Outlined.UnfoldMore) },
         text = {
             OutlinedTextField(
                 value = lineText,
@@ -2102,27 +2104,7 @@ internal fun GitCloneDialog(onDismiss: () -> Unit, onClone: (String) -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier.testTag("git-clone-dialog"),
-        title = {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.medium),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        Icons.Outlined.CloudDownload,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-                Text("克隆 Git 仓库", style = MaterialTheme.typography.titleLarge)
-            }
-        },
+        title = { ReaderDialogTitle("克隆 Git 仓库", Icons.Outlined.CloudDownload) },
         text = {
             OutlinedTextField(
                 value = url,
@@ -2152,6 +2134,17 @@ internal fun GitCloneDialog(onDismiss: () -> Unit, onClone: (String) -> Unit) {
             }
         },
     )
+}
+
+@Composable
+internal fun ReaderDialogTitle(title: String, icon: ImageVector) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ReaderIconBadge(icon = icon, tone = ReaderBadgeTone.PRIMARY)
+        Text(title, style = MaterialTheme.typography.titleLarge)
+    }
 }
 
 private fun persistUri(context: android.content.Context, uri: Uri) {

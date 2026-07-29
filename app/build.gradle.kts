@@ -13,13 +13,17 @@ android {
         applicationId = "com.lonnnnnng.codereader"
         minSdk = 24
         targetSdk = 36
-        versionCode = 10
-        versionName = "0.1.9"
+        versionCode = 11
+        versionName = "0.1.10"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
+        debug {
+            // 调试包与正式版并存，UI 验收无需卸载正式包或清空用户的最近项目与显示偏好。 @author long
+            applicationIdSuffix = ".debug"
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
