@@ -110,12 +110,12 @@ class DocumentRepository(private val context: Context) {
     suspend fun indexProject(root: EntryLocation): List<ProjectTreeEntry> = withContext(Dispatchers.IO) {
         val result = mutableListOf<ProjectTreeEntry>()
         when (root) {
-            is EntryLocation.Local -> indexLocal(root.file, null, "", 0, result)
+            is EntryLocation.Local -> indexLocal(root.file, null, "", 0, result, mutableSetOf())
             is EntryLocation.Saf -> {
                 val directory = DocumentFile.fromTreeUri(context, root.uri)
                     ?: DocumentFile.fromSingleUri(context, root.uri)
                     ?: error("目录授权已经失效")
-                indexSaf(directory, null, "", 0, result)
+                indexSaf(directory, null, "", 0, result, mutableSetOf())
             }
         }
         result
@@ -255,14 +255,23 @@ class DocumentRepository(private val context: Context) {
         parentPath: String,
         depth: Int,
         result: MutableList<ProjectTreeEntry>,
+        visitedDirectories: MutableSet<String>,
     ) {
-        if (result.size >= MAX_PROJECT_ENTRIES) return
+        // Git 工程可能包含指向父级的目录符号链接；按规范路径去重可以完整索引正常文件，又不会递归成环。 @author long
+        val canonicalPath = runCatching { directory.canonicalPath }.getOrElse { directory.absolutePath }
+        if (!visitedDirectories.add(canonicalPath)) return
         listLocalChildren(directory).forEach { source ->
-            if (result.size >= MAX_PROJECT_ENTRIES) return
             val path = if (parentPath.isEmpty()) source.name else "$parentPath/${source.name}"
             result += ProjectTreeEntry(source, path, parentId, depth)
             if (source.isDirectory) {
-                indexLocal((source.location as EntryLocation.Local).file, source.id, path, depth + 1, result)
+                indexLocal(
+                    (source.location as EntryLocation.Local).file,
+                    source.id,
+                    path,
+                    depth + 1,
+                    result,
+                    visitedDirectories,
+                )
             }
         }
     }
@@ -273,18 +282,18 @@ class DocumentRepository(private val context: Context) {
         parentPath: String,
         depth: Int,
         result: MutableList<ProjectTreeEntry>,
+        visitedDirectories: MutableSet<String>,
     ) {
-        if (result.size >= MAX_PROJECT_ENTRIES) return
+        if (!visitedDirectories.add(directory.uri.toString())) return
         directory.listFiles()
             .sortedWith(compareByDescending<DocumentFile> { it.isDirectory }.thenBy { it.name.orEmpty().lowercase() })
             .forEach { child ->
-            if (result.size >= MAX_PROJECT_ENTRIES) return
             val source = child.toSourceEntry()
             val path = if (parentPath.isEmpty()) source.name else "$parentPath/${source.name}"
             result += ProjectTreeEntry(source, path, parentId, depth)
             if (source.isDirectory) {
                 // 直接递归 listFiles() 返回的子节点，避免 fromTreeUri(childUri) 重建成整棵树的根目录。
-                indexSaf(child, source.id, path, depth + 1, result)
+                indexSaf(child, source.id, path, depth + 1, result, visitedDirectories)
             }
         }
     }
@@ -331,7 +340,6 @@ class DocumentRepository(private val context: Context) {
         const val SEARCH_PAGE_CHARACTERS = 2 * 1024 * 1024
         const val SEARCH_FILE_LIMIT_BYTES = 2 * 1024 * 1024L
         const val UNKNOWN_FILE_SIZE = -1L
-        const val MAX_PROJECT_ENTRIES = 5_000
         const val MAX_PROJECT_SEARCH_RESULTS = 200
         const val MAX_HITS_PER_FILE = 8
         val UTF8_BOM = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())

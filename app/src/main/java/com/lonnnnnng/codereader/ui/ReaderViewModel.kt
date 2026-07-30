@@ -8,6 +8,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.lonnnnnng.codereader.BuildConfig
 import com.lonnnnnng.codereader.data.DocumentRepository
+import com.lonnnnnng.codereader.data.GitOperationCancelledException
+import com.lonnnnnng.codereader.data.GitOperationProgressMonitor
 import com.lonnnnnng.codereader.data.ProjectImporter
 import com.lonnnnnng.codereader.data.RecentProjectCodec
 import com.lonnnnnng.codereader.data.RecentProjectPolicy
@@ -64,6 +66,18 @@ data class ReaderSettings(
     val appPalette: AppColorPalette = AppColorPalette.EMERALD,
 )
 
+/** 长耗时操作在全局遮罩中持续展示阶段、进度和取消能力，避免用户误以为应用没有响应。 @author long */
+enum class ReaderOperationKind { GENERAL, GIT }
+
+/** @author long */
+data class ReaderOperationState(
+    val title: String,
+    val detail: String? = null,
+    val progressPercent: Int? = null,
+    val cancellable: Boolean = false,
+    val kind: ReaderOperationKind = ReaderOperationKind.GENERAL,
+)
+
 /** 每个标签页独立保存草稿和预览状态，切换文件不会丢失未保存内容。 @author long */
 data class ReaderTabState(
     val document: OpenDocument,
@@ -77,10 +91,11 @@ data class ReaderTabState(
 data class ReaderUiState(
     val screen: AppScreen = AppScreen.HOME,
     val settingsPage: SettingsPage = SettingsPage.ROOT,
-    val busy: Boolean = false,
+    val operation: ReaderOperationState? = null,
     val message: String? = null,
     val browserTitle: String? = null,
     val browserBackTarget: AppScreen = AppScreen.HOME,
+    val gitRepositoryRoot: String? = null,
     val projectEntries: List<ProjectTreeEntry> = emptyList(),
     val expandedDirectoryIds: Set<String> = emptySet(),
     val projectSearchQuery: String = "",
@@ -124,6 +139,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private val updateRepository = AppUpdateRepository(application)
     private val commandIds = AtomicLong()
     private val updateOperationActive = AtomicBoolean(false)
+    @Volatile private var activeGitMonitor: GitOperationProgressMonitor? = null
 
     private val initialTheme = ReaderTheme.fromPreference(preferences.getString(KEY_THEME, null))
     private val initialSettings = ReaderSettings(
@@ -188,8 +204,53 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         openLocalRoot(importer.importZip(uri), rememberRecent = true)
     }
 
-    fun cloneGit(url: String) = launchBusy {
-        openLocalRoot(importer.cloneGit(url), rememberRecent = true)
+    fun cloneGit(url: String) = launchGitOperation("正在克隆 Git 仓库") { monitor ->
+        val directory = importer.cloneGit(url, monitor)
+        updateOperationDetail("正在建立完整目录索引")
+        openLocalRoot(directory, rememberRecent = true)
+        "已克隆 ${directory.name}"
+    }
+
+    fun updateGitRepository() {
+        val root = _state.value.gitRepositoryRoot?.let(::File)
+        if (root == null || !importer.isGitRepository(root)) {
+            _state.update { it.copy(message = "当前项目不是可更新的 Git 仓库") }
+            return
+        }
+        if (_state.value.tabs.any { it.dirty && isDocumentInside(it.document, root) }) {
+            _state.update { it.copy(message = "请先保存或关闭该仓库中未保存的文件，再获取最新代码") }
+            return
+        }
+
+        launchGitOperation("正在获取最新代码") { monitor ->
+            val result = importer.updateGit(root, monitor)
+            if (result.updated) {
+                updateOperationDetail("正在刷新完整目录索引")
+                val index = repository.indexProject(EntryLocation.Local(root))
+                _state.update { current ->
+                    // 更新后的工作区文件可能已经改变，关闭该仓库的旧标签可避免继续显示拉取前的缓存内容。 @author long
+                    val remainingTabs = current.tabs.filterNot { isDocumentInside(it.document, root) }
+                    val activeId = current.activeTabId?.takeIf { id -> remainingTabs.any { it.document.id == id } }
+                    current.copy(
+                        projectEntries = index,
+                        expandedDirectoryIds = emptySet(),
+                        projectSearchQuery = "",
+                        projectSearchResults = emptyList(),
+                        tabs = remainingTabs,
+                        activeTabId = activeId,
+                    )
+                }
+            }
+            if (result.updated) "已获取最新代码" else "仓库已经是最新版本"
+        }
+    }
+
+    fun cancelGitOperation() {
+        activeGitMonitor?.cancel()
+        _state.update { current ->
+            val operation = current.operation ?: return@update current
+            current.copy(operation = operation.copy(detail = "正在取消 Git 操作…", cancellable = false))
+        }
     }
 
     fun openBundledProject(assetPath: String, targetName: String) = launchBusy {
@@ -510,6 +571,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     screen = it.browserBackTarget,
                     browserTitle = null,
                     browserBackTarget = AppScreen.HOME,
+                    gitRepositoryRoot = null,
                     projectEntries = emptyList(),
                     expandedDirectoryIds = emptySet(),
                     projectSearchResults = emptyList(),
@@ -550,6 +612,10 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         recent: RecentProjectRecord?,
     ) {
         val index = repository.indexProject(root)
+        val gitRoot = (root as? EntryLocation.Local)
+            ?.file
+            ?.takeIf(importer::isGitRepository)
+            ?.absolutePath
         if (recent != null) rememberRecentProject(recent)
         _state.update {
             // 从最近打开进入项目后，返回必须回到列表，避免用户丢失刚才浏览历史的位置。
@@ -558,11 +624,12 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 screen = AppScreen.BROWSER,
                 browserTitle = title,
                 browserBackTarget = backTarget,
+                gitRepositoryRoot = gitRoot,
                 projectEntries = index,
                 expandedDirectoryIds = emptySet(),
                 projectSearchQuery = "",
                 projectSearchResults = emptyList(),
-                message = if (index.size >= MAX_PROJECT_ENTRIES) "项目较大，仅索引前 $MAX_PROJECT_ENTRIES 个条目" else null,
+                message = null,
             )
         }
     }
@@ -570,6 +637,15 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private suspend fun openSource(source: SourceEntry): OpenDocument = when (val location = source.location) {
         is EntryLocation.Saf -> repository.openUri(location.uri, source.name)
         is EntryLocation.Local -> repository.openLocal(location.file)
+    }
+
+    private fun isDocumentInside(document: OpenDocument, root: File): Boolean {
+        val file = (document.location as? EntryLocation.Local)?.file ?: return false
+        return runCatching {
+            val rootPath = root.canonicalPath
+            val filePath = file.canonicalPath
+            filePath == rootPath || filePath.startsWith(rootPath + File.separator)
+        }.getOrDefault(false)
     }
 
     private fun openDocument(document: OpenDocument, initialLine: Int? = null) {
@@ -632,9 +708,63 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun launchBusy(block: suspend () -> Unit) {
         viewModelScope.launch {
-            _state.update { it.copy(busy = true, message = null) }
-            runCatching { block() }.onFailure(::showError)
-            _state.update { it.copy(busy = false) }
+            _state.update { it.copy(operation = ReaderOperationState("正在处理"), message = null) }
+            try {
+                block()
+            } catch (error: Throwable) {
+                showError(error)
+            } finally {
+                _state.update { it.copy(operation = null) }
+            }
+        }
+    }
+
+    private fun launchGitOperation(
+        title: String,
+        block: suspend (GitOperationProgressMonitor) -> String,
+    ) {
+        viewModelScope.launch {
+            val monitor = GitOperationProgressMonitor { progress ->
+                _state.update { current ->
+                    val operation = current.operation ?: return@update current
+                    current.copy(
+                        operation = operation.copy(
+                            detail = progress.detail,
+                            progressPercent = progress.percent,
+                        ),
+                    )
+                }
+            }
+            activeGitMonitor = monitor
+            _state.update {
+                it.copy(
+                    operation = ReaderOperationState(
+                        title = title,
+                        detail = "正在连接远程仓库",
+                        cancellable = true,
+                        kind = ReaderOperationKind.GIT,
+                    ),
+                    message = null,
+                )
+            }
+            try {
+                val successMessage = block(monitor)
+                _state.update { it.copy(message = successMessage) }
+            } catch (cancelled: GitOperationCancelledException) {
+                _state.update { it.copy(message = cancelled.message) }
+            } catch (error: Throwable) {
+                showError(error)
+            } finally {
+                if (activeGitMonitor === monitor) activeGitMonitor = null
+                _state.update { it.copy(operation = null) }
+            }
+        }
+    }
+
+    private fun updateOperationDetail(detail: String) {
+        _state.update { current ->
+            val operation = current.operation ?: return@update current
+            current.copy(operation = operation.copy(detail = detail, progressPercent = null, cancellable = false))
         }
     }
 
@@ -668,6 +798,5 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         const val MIN_FONT_SIZE = 11f
         const val MAX_FONT_SIZE = 24f
         const val MAX_RECENT_PROJECTS = 6
-        const val MAX_PROJECT_ENTRIES = 5_000
     }
 }

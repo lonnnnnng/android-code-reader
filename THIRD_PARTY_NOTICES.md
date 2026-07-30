@@ -56,7 +56,7 @@ The bundled browser assets and full license texts are stored under
 
 - Repository: https://github.com/eclipse-jgit/jgit
 - Version: `7.7.0.202606012155-r`
-- Usage: public HTTPS Git clone
+- Usage: public HTTPS Git clone and fast-forward update
 - License: Eclipse Distribution License 1.0
 
 ## Squircle CE Language Assets

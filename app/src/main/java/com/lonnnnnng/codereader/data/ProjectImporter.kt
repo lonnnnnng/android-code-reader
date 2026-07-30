@@ -5,8 +5,9 @@ import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.eclipse.jgit.api.Git
+import org.eclipse.jgit.api.MergeCommand
+import org.eclipse.jgit.lib.Constants
 import java.io.File
-import java.security.MessageDigest
 import java.util.zip.ZipInputStream
 
 /**
@@ -14,7 +15,7 @@ import java.util.zip.ZipInputStream
  *
  * @author long
  */
-class ProjectImporter(private val context: Context) {
+internal class ProjectImporter(private val context: Context) {
 
     suspend fun importZip(uri: Uri): File = withContext(Dispatchers.IO) {
         val target = freshDirectory("zip-${System.currentTimeMillis()}")
@@ -59,24 +60,60 @@ class ProjectImporter(private val context: Context) {
         }
     }
 
-    suspend fun cloneGit(url: String): File = withContext(Dispatchers.IO) {
-        val normalized = url.trim()
-        require(normalized.startsWith("https://")) { "当前仅支持 HTTPS Git 地址" }
-        val target = freshDirectory("git-${shortHash(normalized)}-${System.currentTimeMillis()}")
+    suspend fun cloneGit(
+        url: String,
+        monitor: GitOperationProgressMonitor = GitOperationProgressMonitor {},
+    ): File = withContext(Dispatchers.IO) {
+        val address = GitRepositoryAddress.parse(url)
+        val target = freshUniqueDirectory(address.repositoryName)
         try {
             Git.cloneRepository()
-                .setURI(normalized)
+                .setURI(address.url)
                 .setDirectory(target)
                 .setDepth(1)
                 .setCloneAllBranches(false)
+                .setTimeout(GIT_TIMEOUT_SECONDS)
+                .setProgressMonitor(monitor)
                 .call()
                 .close()
             target
         } catch (error: Exception) {
             target.deleteRecursively()
+            if (monitor.isCancelled) throw GitOperationCancelledException("已取消克隆 Git 仓库")
             throw IllegalStateException("Git 克隆失败：${error.message ?: error.javaClass.simpleName}", error)
         }
     }
+
+    suspend fun updateGit(
+        directory: File,
+        monitor: GitOperationProgressMonitor = GitOperationProgressMonitor {},
+    ): GitUpdateResult = withContext(Dispatchers.IO) {
+        require(isGitRepository(directory)) { "当前项目不是可更新的 Git 仓库" }
+        try {
+            Git.open(directory).use { git ->
+                val previousRevision = git.repository.resolve(Constants.HEAD)?.name
+                val pullResult = git.pull()
+                    // 只允许快进，不自动生成合并提交，也绝不覆盖用户在手机上保存的本地修改。 @author long
+                    .setFastForward(MergeCommand.FastForwardMode.FF_ONLY)
+                    .setRebase(false)
+                    .setTimeout(GIT_TIMEOUT_SECONDS)
+                    .setProgressMonitor(monitor)
+                    .call()
+                require(pullResult.isSuccessful) {
+                    "远程更新不能安全快进，请先处理本地修改或分支差异"
+                }
+                val currentRevision = git.repository.resolve(Constants.HEAD)?.name
+                GitUpdateResult(updated = previousRevision != currentRevision)
+            }
+        } catch (error: Exception) {
+            if (monitor.isCancelled) throw GitOperationCancelledException("已取消获取最新代码")
+            if (error is IllegalArgumentException) throw error
+            throw IllegalStateException("Git 更新失败：${error.message ?: error.javaClass.simpleName}", error)
+        }
+    }
+
+    fun isGitRepository(directory: File): Boolean =
+        directory.isDirectory && File(directory, Constants.DOT_GIT).exists()
 
     suspend fun prepareBundledProject(assetPath: String, targetName: String): File = withContext(Dispatchers.IO) {
         val target = File(context.filesDir, targetName)
@@ -91,6 +128,20 @@ class ProjectImporter(private val context: Context) {
         return File(root, name).apply {
             deleteRecursively()
             mkdirs()
+        }
+    }
+
+    private fun freshUniqueDirectory(baseName: String): File {
+        val root = File(context.filesDir, "projects").apply { mkdirs() }
+        var suffix = 1
+        while (true) {
+            val name = if (suffix == 1) baseName else "$baseName-$suffix"
+            val candidate = File(root, name)
+            if (!candidate.exists()) {
+                check(candidate.mkdirs()) { "无法创建 Git 项目目录：${candidate.absolutePath}" }
+                return candidate
+            }
+            suffix++
         }
     }
 
@@ -110,13 +161,9 @@ class ProjectImporter(private val context: Context) {
         children.forEach { child -> copyAssets("$path/$child", File(target, child)) }
     }
 
-    private fun shortHash(value: String): String = MessageDigest.getInstance("SHA-256")
-        .digest(value.toByteArray())
-        .take(6)
-        .joinToString("") { "%02x".format(it) }
-
     private companion object {
         const val MAX_ZIP_ENTRIES = 10_000
         const val MAX_ZIP_BYTES = 200L * 1024 * 1024
+        const val GIT_TIMEOUT_SECONDS = 60
     }
 }

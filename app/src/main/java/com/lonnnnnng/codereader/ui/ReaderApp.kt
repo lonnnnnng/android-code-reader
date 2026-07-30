@@ -62,17 +62,18 @@ import androidx.compose.material.icons.outlined.FindInPage
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.HourglassTop
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.UnfoldMore
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -83,6 +84,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -111,6 +113,7 @@ import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
@@ -126,6 +129,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import com.lonnnnnng.codereader.BuildConfig
+import com.lonnnnnng.codereader.data.GitRepositoryAddress
 import com.lonnnnnng.codereader.data.RecentProjectRecord
 import com.lonnnnnng.codereader.model.AppColorPalette
 import com.lonnnnnng.codereader.model.FileType
@@ -188,7 +192,10 @@ fun ReaderApp(viewModel: ReaderViewModel) {
 
     // 系统侧边手势与返回键共用现有页面栈，只有首页没有可返回页面时才进入退出确认。
     BackHandler {
-        if (showExitConfirmation) {
+        val operation = state.operation
+        if (operation != null) {
+            if (operation.cancellable) viewModel.cancelGitOperation()
+        } else if (showExitConfirmation) {
             showExitConfirmation = false
         } else if (showGitDialog) {
             showGitDialog = false
@@ -268,6 +275,7 @@ fun ReaderApp(viewModel: ReaderViewModel) {
                             onEntry = viewModel::openEntry,
                             onSearch = viewModel::searchProject,
                             onSearchResult = viewModel::openSearchResult,
+                            onUpdateGit = viewModel::updateGitRepository,
                             onToggleTheme = viewModel::toggleTheme,
                         )
                             AppScreen.READER -> ReaderScreen(
@@ -291,25 +299,8 @@ fun ReaderApp(viewModel: ReaderViewModel) {
                         }
                     }
 
-                    if (state.busy) {
-                        Surface(color = ComposeColor.Black.copy(alpha = 0.38f), modifier = Modifier.fillMaxSize()) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surface,
-                                    shape = MaterialTheme.shapes.medium,
-                                    shadowElevation = 6.dp,
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp)
-                                        Text("正在处理", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                                    }
-                                }
-                            }
-                        }
+                    state.operation?.let { operation ->
+                        ReaderOperationOverlay(operation, viewModel::cancelGitOperation)
                     }
                 }
             }
@@ -1278,12 +1269,13 @@ private fun ColorSwatch(color: ComposeColor, borderColor: ComposeColor) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BrowserScreen(
+internal fun BrowserScreen(
     state: ReaderUiState,
     onBack: () -> Unit,
     onEntry: (SourceEntry) -> Unit,
     onSearch: (String) -> Unit,
     onSearchResult: (ProjectSearchResult) -> Unit,
+    onUpdateGit: () -> Unit,
     onToggleTheme: () -> Unit,
 ) {
     val browserTitle = state.browserTitle ?: return
@@ -1307,6 +1299,13 @@ private fun BrowserScreen(
                     }
                     },
                 )
+                if (state.gitRepositoryRoot != null) {
+                    HeaderIconButton(
+                        icon = Icons.Outlined.Sync,
+                        contentDescription = "获取最新代码",
+                        onClick = onUpdateGit,
+                    )
+                }
                 ThemeToggleButton(state.theme.isDark, onToggleTheme)
             },
         )
@@ -2095,29 +2094,122 @@ private fun ThemeToggleButton(darkTheme: Boolean, onToggleTheme: () -> Unit) {
 }
 
 @Composable
+internal fun ReaderOperationOverlay(operation: ReaderOperationState, onCancel: () -> Unit) {
+    Surface(
+        color = ComposeColor.Black.copy(alpha = 0.48f),
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) awaitPointerEvent()
+                }
+            }
+            .testTag("operation-overlay"),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                shape = MaterialTheme.shapes.large,
+                tonalElevation = 6.dp,
+                modifier = Modifier.padding(horizontal = 28.dp).widthIn(max = 380.dp).fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ReaderIconBadge(
+                            icon = if (operation.kind == ReaderOperationKind.GIT) Icons.Outlined.Sync else Icons.Outlined.HourglassTop,
+                            tone = ReaderBadgeTone.PRIMARY,
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                operation.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.testTag("operation-title"),
+                            )
+                            operation.detail?.let { detail ->
+                                Text(
+                                    detail,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 2.dp).testTag("operation-detail"),
+                                )
+                            }
+                        }
+                    }
+
+                    if (operation.progressPercent != null) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("当前阶段", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                "${operation.progressPercent}%",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        LinearProgressIndicator(
+                            progress = { operation.progressPercent / 100f },
+                            modifier = Modifier.fillMaxWidth().testTag("operation-progress"),
+                        )
+                    } else {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().testTag("operation-progress"),
+                        )
+                    }
+
+                    if (operation.cancellable) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = onCancel, modifier = Modifier.testTag("operation-cancel")) {
+                                Text("取消")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 internal fun GitCloneDialog(onDismiss: () -> Unit, onClone: (String) -> Unit) {
     var url by remember { mutableStateOf("") }
     val normalizedUrl = url.trim()
-    val parsedUrl = remember(normalizedUrl) { Uri.parse(normalizedUrl) }
-    val validUrl = parsedUrl.scheme.equals("https", ignoreCase = true) &&
-        !parsedUrl.host.isNullOrBlank() && parsedUrl.pathSegments.isNotEmpty()
+    val validUrl = remember(normalizedUrl) { GitRepositoryAddress.isValid(normalizedUrl) }
+    val invalidUrl = normalizedUrl.isNotEmpty() && !validUrl
     AlertDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier.testTag("git-clone-dialog"),
         title = { ReaderDialogTitle("克隆 Git 仓库", Icons.Outlined.CloudDownload) },
         text = {
-            OutlinedTextField(
-                value = url,
-                onValueChange = { url = it },
-                label = { Text("仓库地址") },
-                placeholder = { Text("https://github.com/owner/repository.git") },
-                supportingText = { Text("仅支持公开 HTTPS 仓库") },
-                singleLine = true,
-                shape = MaterialTheme.shapes.medium,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { if (validUrl) onClone(normalizedUrl) }),
-                modifier = Modifier.fillMaxWidth().testTag("git-url-input"),
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "输入公开仓库的 HTTPS 地址。克隆完成后会以仓库名称保存，并可在项目页获取最新代码。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    label = { Text("仓库地址") },
+                    placeholder = { Text("https://github.com/owner/repository.git") },
+                    supportingText = {
+                        Text(if (invalidUrl) "请输入完整的公开 HTTPS Git 地址" else "固定显示 5 行，长地址会自动换行")
+                    },
+                    isError = invalidUrl,
+                    minLines = 5,
+                    maxLines = 5,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                    shape = MaterialTheme.shapes.medium,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { if (validUrl) onClone(normalizedUrl) }),
+                    modifier = Modifier.fillMaxWidth().testTag("git-url-input"),
+                )
+            }
         },
         confirmButton = {
             Button(
@@ -2125,7 +2217,9 @@ internal fun GitCloneDialog(onDismiss: () -> Unit, onClone: (String) -> Unit) {
                 enabled = validUrl,
                 modifier = Modifier.testTag("git-clone-confirm"),
             ) {
-                Text("克隆")
+                Icon(Icons.Outlined.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("开始克隆")
             }
         },
         dismissButton = {
