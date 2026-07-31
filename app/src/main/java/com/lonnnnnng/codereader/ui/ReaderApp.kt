@@ -526,7 +526,13 @@ private fun ProductHeader(
                     }
                 }
                 Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
-                    Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        text = title,
+                        modifier = Modifier.testTag("product-header-title"),
+                        style = MaterialTheme.typography.titleLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                     if (subtitle != null) {
                         Text(
                             subtitle,
@@ -1715,7 +1721,7 @@ private fun ReaderStatusBadge(text: String, emphasized: Boolean) {
 }
 
 @Composable
-private fun ReaderTabs(state: ReaderUiState, onSwitch: (String) -> Unit, onClose: (ReaderTabState) -> Unit) {
+internal fun ReaderTabs(state: ReaderUiState, onSwitch: (String) -> Unit, onClose: (ReaderTabState) -> Unit) {
     val listState = rememberLazyListState()
     val activeIndex = state.tabs.indexOfFirst { it.document.id == state.activeTabId }
     LaunchedEffect(state.activeTabId, state.tabs.size) {
@@ -1724,61 +1730,80 @@ private fun ReaderTabs(state: ReaderUiState, onSwitch: (String) -> Unit, onClose
     }
     Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
         LazyRow(
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 5.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(ReaderDimens.iconTouchTarget)
+                .testTag("reader-tab-strip"),
+            contentPadding = PaddingValues(horizontal = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
             state = listState,
         ) {
             items(state.tabs, key = { it.document.id }) { tab ->
                 val active = tab.document.id == state.activeTabId
-                Surface(
+                Box(
                     modifier = Modifier
-                        .height(38.dp)
-                        .widthIn(min = 108.dp, max = 220.dp)
+                        .height(ReaderDimens.iconTouchTarget)
+                        .widthIn(min = 96.dp, max = 184.dp)
                         .clickable { onSwitch(tab.document.id) },
-                    color = if (active) MaterialTheme.colorScheme.surfaceContainerHigh else ComposeColor.Transparent,
-                    shape = MaterialTheme.shapes.small,
                 ) {
-                    Box {
-                        Row(
-                            modifier = Modifier.fillMaxSize().padding(start = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = tab.document.name,
-                                style = MaterialTheme.typography.labelLarge,
-                                color = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                            if (tab.dirty) {
-                                Box(
-                                    modifier = Modifier
-                                        .padding(horizontal = if (active) 0.dp else 12.dp)
-                                        .size(6.dp)
-                                        .background(MaterialTheme.colorScheme.tertiary, CircleShape),
-                                )
-                            }
-                            if (active) {
-                                IconButton(onClick = { onClose(tab) }, modifier = Modifier.size(38.dp)) {
-                                    Icon(
-                                        Icons.Outlined.Close,
-                                        contentDescription = "关闭 ${tab.document.name}",
-                                        modifier = Modifier.size(17.dp),
-                                    )
-                                }
-                            }
-                        }
+                    // 标签的可见底板独立于 48dp 点击区域，降低阅读页占用感但不牺牲触控命中率。 @author long
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .fillMaxWidth()
+                            .height(ReaderDimens.readerTabVisualHeight)
+                            .testTag(if (active) "reader-active-tab-visual" else "reader-inactive-tab-visual"),
+                    ) {
+                        Surface(
+                            modifier = Modifier.fillMaxSize(),
+                            color = if (active) MaterialTheme.colorScheme.surfaceContainerHigh else ComposeColor.Transparent,
+                            shape = MaterialTheme.shapes.small,
+                        ) {}
                         if (active) {
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
-                                    .width(28.dp)
+                                    .width(24.dp)
                                     .height(2.dp)
-                                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp)),
+                                    .background(
+                                        MaterialTheme.colorScheme.primary,
+                                        RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp),
+                                    ),
                             )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxSize().padding(start = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = tab.document.name,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (tab.dirty) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(horizontal = if (active) 0.dp else 10.dp)
+                                    .size(5.dp)
+                                    .background(MaterialTheme.colorScheme.tertiary, CircleShape),
+                            )
+                        }
+                        if (active) {
+                            IconButton(
+                                onClick = { onClose(tab) },
+                                modifier = Modifier.size(ReaderDimens.iconTouchTarget),
+                            ) {
+                                Icon(
+                                    Icons.Outlined.Close,
+                                    contentDescription = "关闭 ${tab.document.name}",
+                                    modifier = Modifier.size(15.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -1853,7 +1878,7 @@ private fun FileSearchBar(
 }
 
 @Composable
-private fun ReaderActionBar(
+internal fun ReaderActionBar(
     hasProject: Boolean,
     markdown: Boolean,
     markdownPreview: Boolean,
@@ -1866,8 +1891,12 @@ private fun ReaderActionBar(
 ) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
         Row(
-            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(ReaderDimens.iconTouchTarget)
+                .padding(horizontal = 2.dp)
+                .testTag("reader-action-bar"),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (hasProject) {
@@ -1924,13 +1953,27 @@ private fun ReaderActionButton(
     }
     IconButton(
         onClick = onClick,
-        modifier = Modifier.size(ReaderDimens.iconTouchTarget),
+        modifier = Modifier
+            .size(ReaderDimens.iconTouchTarget)
+            .testTag("reader-action-touch-$contentDescription"),
         colors = IconButtonDefaults.iconButtonColors(
-            containerColor = containerColor,
+            containerColor = ComposeColor.Transparent,
             contentColor = contentColor,
         ),
     ) {
-        Icon(icon, contentDescription = contentDescription)
+        Box(
+            modifier = Modifier
+                .size(ReaderDimens.readerActionVisualSize)
+                .background(containerColor, MaterialTheme.shapes.small)
+                .testTag("reader-action-visual-$contentDescription"),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                icon,
+                contentDescription = contentDescription,
+                modifier = Modifier.size(ReaderDimens.readerActionIconSize),
+            )
+        }
     }
 }
 

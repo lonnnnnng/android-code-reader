@@ -180,6 +180,9 @@ internal object ReaderDimens {
     val iconTouchTarget = 48.dp
     val iconBadge = 36.dp
     val compactIconBadge = 32.dp
+    val readerTabVisualHeight = 32.dp
+    val readerActionVisualSize = 32.dp
+    val readerActionIconSize = 19.dp
     val listRowMinHeight = 64.dp
     val compactRowMinHeight = 52.dp
 }

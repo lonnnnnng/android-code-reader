@@ -1,11 +1,14 @@
 package com.lonnnnnng.codereader.ui
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertWidthIsEqualTo
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -14,12 +17,16 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.unit.dp
 import com.lonnnnnng.codereader.model.AppColorPalette
+import com.lonnnnnng.codereader.model.EntryLocation
+import com.lonnnnnng.codereader.model.FileType
+import com.lonnnnnng.codereader.model.OpenDocument
 import com.lonnnnnng.codereader.model.ReaderTheme
 import com.lonnnnnng.codereader.update.AppRelease
 import com.lonnnnnng.codereader.update.ReleaseApkAsset
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import java.io.File
 
 /** 弹框组件必须复用应用设计系统，并保持说明、进度和操作的稳定阅读顺序。 @author long */
 class DialogLayoutInstrumentedTest {
@@ -141,5 +148,63 @@ class DialogLayoutInstrumentedTest {
 
         composeRule.onNodeWithContentDescription("获取最新代码").assertIsDisplayed().performClick()
         composeRule.runOnIdle { assertTrue("Git 项目标题栏必须触发更新动作", updateRequested) }
+    }
+
+    @Test
+    fun readerTabsAndActionsUseCompactVisualsWithFullTouchTargets() {
+        val markdown = ReaderTabState(
+            OpenDocument(
+                name = "Markdown示例.md",
+                text = "# Markdown",
+                fileType = FileType.MARKDOWN,
+                canWrite = true,
+                location = EntryLocation.Local(File("/tmp/Markdown示例.md")),
+            ),
+        )
+        val readme = ReaderTabState(
+            OpenDocument(
+                name = "README.md",
+                text = "# README",
+                fileType = FileType.MARKDOWN,
+                canWrite = true,
+                location = EntryLocation.Local(File("/tmp/README.md")),
+            ),
+        )
+
+        composeRule.setContent {
+            MaterialTheme(
+                colorScheme = appColorScheme(ReaderTheme.HIGH_CONTRAST_LIGHT, AppColorPalette.EMERALD),
+                typography = ReaderTypography,
+                shapes = ReaderShapes,
+            ) {
+                Column {
+                    ReaderTabs(
+                        state = ReaderUiState(tabs = listOf(markdown, readme), activeTabId = markdown.document.id),
+                        onSwitch = {},
+                        onClose = {},
+                    )
+                    ReaderActionBar(
+                        hasProject = true,
+                        markdown = true,
+                        markdownPreview = true,
+                        editable = false,
+                        dirty = false,
+                        onOpenFileSwitcher = {},
+                        onTogglePreview = {},
+                        onToggleEditable = {},
+                        onSave = {},
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithTag("reader-active-tab-visual", useUnmergedTree = true)
+            .assertHeightIsEqualTo(ReaderDimens.readerTabVisualHeight)
+        composeRule.onNodeWithTag("reader-action-visual-查看源码", useUnmergedTree = true)
+            .assertHeightIsEqualTo(ReaderDimens.readerActionVisualSize)
+            .assertWidthIsEqualTo(ReaderDimens.readerActionVisualSize)
+        composeRule.onNodeWithTag("reader-action-touch-查看源码")
+            .assertHeightIsEqualTo(ReaderDimens.iconTouchTarget)
+            .assertWidthIsEqualTo(ReaderDimens.iconTouchTarget)
     }
 }

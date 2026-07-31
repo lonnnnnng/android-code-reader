@@ -4,6 +4,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
@@ -11,6 +12,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.lifecycle.Lifecycle
@@ -136,9 +138,11 @@ class SettingsInstrumentedTest {
 
     @Test
     fun recentProjectsMenuUsesStablePageNavigation() {
-        composeRule.onNodeWithTag("recent-projects-menu").assertIsDisplayed().performClick()
+        // 首页在较大系统字号下会将“最近打开”推出首屏，先滚动到入口才能验证真实的跨设备导航。
+        composeRule.onNodeWithTag("recent-projects-menu").performScrollTo().assertIsDisplayed().performClick()
         composeRule.onNodeWithTag("recent-projects-page").assertIsDisplayed()
-        composeRule.onNodeWithText("最近打开").assertIsDisplayed()
+        // 页面切换动画会短暂保留首页同名入口，限定标题标识可避免误命中正在退出的节点。
+        composeRule.onNode(hasTestTag("product-header-title") and hasText("最近打开")).assertIsDisplayed()
 
         // 模拟器可能保留手工验收记录；通过产品自己的移除入口归一为空状态，再验证空页和持久化导航。
         while (composeRule.onAllNodesWithContentDescription("移除最近项目").fetchSemanticsNodes().isNotEmpty()) {
@@ -153,7 +157,7 @@ class SettingsInstrumentedTest {
         }
         composeRule.waitForIdle()
         composeRule.onNodeWithText("打开内容").assertIsDisplayed()
-        composeRule.onNodeWithTag("recent-projects-menu").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("recent-projects-menu").performScrollTo().assertIsDisplayed().performClick()
         composeRule.onNodeWithTag("recent-projects-empty").assertIsDisplayed()
 
         composeRule.onNodeWithContentDescription("返回").performClick()
