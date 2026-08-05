@@ -74,6 +74,7 @@ import androidx.compose.material.icons.outlined.UnfoldMore
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -117,6 +118,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -130,6 +135,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import com.lonnnnnng.codereader.BuildConfig
 import com.lonnnnnng.codereader.data.GitRepositoryAddress
+import com.lonnnnnng.codereader.data.PROJECT_SEARCH_RESULT_LIMIT
 import com.lonnnnnng.codereader.data.RecentProjectRecord
 import com.lonnnnnng.codereader.model.AppColorPalette
 import com.lonnnnnng.codereader.model.FileType
@@ -393,7 +399,11 @@ private fun HomeScreen(
                     )
                     HomeFeatureRow(
                         title = "最近打开",
-                        summary = if (state.recentProjects.isEmpty()) "暂无项目记录" else "${state.recentProjects.size} 个可恢复项目",
+                        summary = when {
+                            state.recentProjects.isEmpty() -> "暂无项目记录"
+                            state.recentProjects.size == 1 -> state.recentProjects.first().title
+                            else -> "${state.recentProjects.first().title} 等 ${state.recentProjects.size} 个项目"
+                        },
                         icon = Icons.Outlined.History,
                         modifier = Modifier.testTag("recent-projects-menu"),
                         onClick = onOpenRecentProjects,
@@ -408,6 +418,7 @@ private fun HomeScreen(
                         title = "Markdown 功能示例",
                         summary = "代码块、数学公式与 Mermaid",
                         icon = Icons.Outlined.Code,
+                        filled = false,
                     ) { onOpenBundledProject("examples", "markdown-example") }
                 }
             }
@@ -420,6 +431,7 @@ private fun HomeScreen(
                             title = "内置测试项目",
                             summary = "多语言源码与语法覆盖样例",
                             icon = Icons.Outlined.Code,
+                            filled = false,
                         ) { onOpenBundledProject("samples", "sample-project") }
                     }
                 }
@@ -565,8 +577,21 @@ private fun HeaderIconButton(icon: ImageVector, contentDescription: String, onCl
 @Composable
 private fun HomeSectionHeader(title: String, meta: String) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-        Text(meta, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.weight(1f).padding(end = 8.dp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            meta,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.widthIn(max = 144.dp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -579,12 +604,38 @@ private fun HomeSourceGrid(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SourceActionTile("文件", "单个源码", Icons.Outlined.Description, onOpenFile, Modifier.weight(1f))
-            SourceActionTile("项目", "目录授权", Icons.Outlined.FolderOpen, onOpenFolder, Modifier.weight(1f))
+            SourceActionTile(
+                title = "文件",
+                summary = "单个源码",
+                icon = Icons.Outlined.Description,
+                onClick = onOpenFile,
+                modifier = Modifier.weight(1f),
+            )
+            SourceActionTile(
+                title = "项目",
+                summary = "目录授权",
+                icon = Icons.Outlined.FolderOpen,
+                onClick = onOpenFolder,
+                modifier = Modifier.weight(1f),
+            )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SourceActionTile("ZIP", "离线导入", Icons.Outlined.Archive, onOpenZip, Modifier.weight(1f))
-            SourceActionTile("Git", "HTTPS 克隆", Icons.Outlined.CloudDownload, onCloneGit, Modifier.weight(1f))
+            SourceActionTile(
+                title = "ZIP",
+                summary = "离线导入",
+                icon = Icons.Outlined.Archive,
+                onClick = onOpenZip,
+                modifier = Modifier.weight(1f),
+                compact = true,
+            )
+            SourceActionTile(
+                title = "Git",
+                summary = "HTTPS 克隆",
+                icon = Icons.Outlined.CloudDownload,
+                onClick = onCloneGit,
+                modifier = Modifier.weight(1f),
+                compact = true,
+            )
         }
     }
 }
@@ -596,22 +647,36 @@ private fun SourceActionTile(
     icon: ImageVector,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
 ) {
+    val minHeight = if (compact) ReaderDimens.homeSecondarySourceHeight else ReaderDimens.homePrimarySourceHeight
     Surface(
         onClick = onClick,
-        modifier = modifier.height(82.dp),
+        modifier = modifier.heightIn(min = minHeight),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         shape = MaterialTheme.shapes.medium,
     ) {
         Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = if (compact) 10.dp else 12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 10.dp),
         ) {
-            ReaderIconBadge(icon = icon, tone = ReaderBadgeTone.PRIMARY)
-            Column {
-                Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
-                Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            ReaderIconBadge(icon = icon, tone = ReaderBadgeTone.PRIMARY, compact = compact)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    title,
+                    style = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -640,6 +705,7 @@ private fun HomeFeatureRow(
     summary: String,
     icon: ImageVector,
     modifier: Modifier = Modifier,
+    filled: Boolean = true,
     onClick: () -> Unit,
 ) {
     ReaderListRow(
@@ -647,6 +713,7 @@ private fun HomeFeatureRow(
         summary = summary,
         icon = icon,
         tone = ReaderBadgeTone.TERTIARY,
+        filled = filled,
         onClick = onClick,
         modifier = modifier,
         trailing = {
@@ -1285,55 +1352,106 @@ internal fun BrowserScreen(
     onToggleTheme: () -> Unit,
 ) {
     val browserTitle = state.browserTitle ?: return
-    var searchVisible by remember { mutableStateOf(false) }
-    var searchText by remember { mutableStateOf(state.projectSearchQuery) }
+    var searchVisible by rememberSaveable(browserTitle) { mutableStateOf(state.projectSearchQuery.isNotBlank()) }
+    var searchText by rememberSaveable(browserTitle) { mutableStateOf(state.projectSearchQuery) }
+    val searchFocusRequester = remember(browserTitle) { FocusRequester() }
+
+    LaunchedEffect(searchVisible) {
+        if (searchVisible) searchFocusRequester.requestFocus()
+    }
+
+    val clearSearch = {
+        searchText = ""
+        onSearch("")
+    }
+    val submitSearch = {
+        val query = searchText.trim()
+        if (query.isNotEmpty()) onSearch(query)
+    }
 
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         ProductHeader(
             title = browserTitle,
-            subtitle = "${state.projectEntries.count { !it.source.isDirectory }} 个文件",
+            subtitle = when {
+                state.projectSearchInProgress -> "正在搜索项目内容"
+                state.projectSearchError != null -> "项目搜索失败"
+                state.projectSearchQuery.isNotBlank() && state.projectSearchResults.isEmpty() -> "没有匹配结果"
+                state.projectSearchQuery.isNotBlank() -> "已显示 ${state.projectSearchResults.size} 条搜索结果"
+                else -> "${state.projectEntries.count { !it.source.isDirectory }} 个文件"
+            },
             onBack = onBack,
             actions = {
                 HeaderIconButton(
-                    icon = Icons.AutoMirrored.Outlined.ManageSearch,
-                    contentDescription = "项目全局搜索",
+                    icon = if (searchVisible) Icons.Outlined.Close else Icons.AutoMirrored.Outlined.ManageSearch,
+                    contentDescription = if (searchVisible) "关闭项目搜索" else "项目全局搜索",
                     onClick = {
-                    searchVisible = !searchVisible
-                    if (!searchVisible) {
-                        searchText = ""
-                        onSearch("")
-                    }
+                        searchVisible = !searchVisible
+                        if (!searchVisible) clearSearch()
                     },
                 )
-                if (state.gitRepositoryRoot != null) {
-                    HeaderIconButton(
-                        icon = Icons.Outlined.Sync,
-                        contentDescription = "获取最新代码",
-                        onClick = onUpdateGit,
-                    )
+                // 搜索模式只保留关闭入口，避免窄屏标题栏同时堆放四组操作。 @author long
+                if (!searchVisible) {
+                    if (state.gitRepositoryRoot != null) {
+                        HeaderIconButton(
+                            icon = Icons.Outlined.Sync,
+                            contentDescription = "获取最新代码",
+                            onClick = onUpdateGit,
+                        )
+                    }
+                    ThemeToggleButton(state.theme.isDark, onToggleTheme)
                 }
-                ThemeToggleButton(state.theme.isDark, onToggleTheme)
             },
         )
         if (searchVisible) {
-            OutlinedTextField(
-                value = searchText,
-                onValueChange = { searchText = it },
-                label = { Text("搜索项目内容") },
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                trailingIcon = {
-                    IconButton(onClick = { onSearch(searchText) }) {
-                        Icon(Icons.Outlined.Search, contentDescription = "开始搜索")
-                    }
-                },
-                shape = MaterialTheme.shapes.medium,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-            )
+            Column {
+                OutlinedTextField(
+                    value = searchText,
+                    onValueChange = { value ->
+                        searchText = value
+                        if (state.projectSearchQuery.isNotBlank() && value.trim() != state.projectSearchQuery) onSearch("")
+                    },
+                    label = { Text("搜索项目内容") },
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                    trailingIcon = {
+                        val normalizedText = searchText.trim()
+                        val querySubmitted = normalizedText.isNotEmpty() && normalizedText == state.projectSearchQuery
+                        IconButton(
+                            onClick = if (querySubmitted) clearSearch else submitSearch,
+                            enabled = normalizedText.isNotEmpty(),
+                        ) {
+                            Icon(
+                                if (querySubmitted) Icons.Outlined.Close else Icons.Outlined.Search,
+                                contentDescription = if (querySubmitted) "清除项目搜索" else "开始搜索",
+                            )
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { submitSearch() }),
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier
+                        .focusRequester(searchFocusRequester)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                )
+                if (state.projectSearchInProgress) {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    )
+                }
+            }
         }
 
         if (state.projectSearchQuery.isNotBlank()) {
-            ProjectSearchResults(state.projectSearchResults, onSearchResult)
+            ProjectSearchResults(
+                query = state.projectSearchQuery,
+                results = state.projectSearchResults,
+                searching = state.projectSearchInProgress,
+                error = state.projectSearchError,
+                onRetry = { onSearch(state.projectSearchQuery) },
+                onClear = clearSearch,
+                onOpen = onSearchResult,
+            )
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize().testTag("project-list"),
@@ -1356,13 +1474,16 @@ private fun ProjectTreeRow(
 ) {
     val entry = indexed.source
     val type = FileType.detect(entry.name)
+    val expanded = entry.isDirectory && entry.id in expandedIds
     Surface(
-        modifier = Modifier.fillMaxWidth().clickable { onEntry(entry) },
-        color = if (entry.isDirectory && entry.id in expandedIds) {
-            MaterialTheme.colorScheme.surfaceContainerHigh
-        } else {
-            ComposeColor.Transparent
-        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(role = Role.Button) { onEntry(entry) }
+            .semantics(mergeDescendants = true) {
+                contentDescription = if (entry.isDirectory) "${indexed.path}，目录" else "${indexed.path}，${type.displayName}"
+                if (entry.isDirectory) stateDescription = if (expanded) "已展开" else "已折叠"
+            },
+        color = if (expanded) MaterialTheme.colorScheme.surfaceContainerLow else ComposeColor.Transparent,
         shape = MaterialTheme.shapes.small,
     ) {
         Row(
@@ -1372,10 +1493,11 @@ private fun ProjectTreeRow(
                 .padding(start = 6.dp, end = 10.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Spacer(Modifier.width((indexed.depth * 16).dp))
+            // 深层工程只压缩视觉缩进，完整相对路径仍通过无障碍描述保留。 @author long
+            Spacer(Modifier.width((indexed.depth.coerceAtMost(5) * 12).dp))
             if (entry.isDirectory) {
                 Icon(
-                    if (entry.id in expandedIds) Icons.Outlined.ExpandMore else Icons.Outlined.ChevronRight,
+                    if (expanded) Icons.Outlined.ExpandMore else Icons.Outlined.ChevronRight,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp),
@@ -1391,6 +1513,8 @@ private fun ProjectTreeRow(
                         "${type.displayName} · ${formatBytes(entry.size)}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -1414,49 +1538,178 @@ private fun FileGlyph(isDirectory: Boolean, fileType: FileType, modifier: Modifi
 }
 
 @Composable
-private fun ProjectSearchResults(results: List<ProjectSearchResult>, onOpen: (ProjectSearchResult) -> Unit) {
-    if (results.isEmpty()) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Outlined.FindInPage, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("没有匹配结果", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp))
+private fun ProjectSearchResults(
+    query: String,
+    results: List<ProjectSearchResult>,
+    searching: Boolean,
+    error: String?,
+    onRetry: () -> Unit,
+    onClear: () -> Unit,
+    onOpen: (ProjectSearchResult) -> Unit,
+) {
+    when {
+        searching -> {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
+                    Text(
+                        "正在搜索“$query”",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                }
             }
+            return
         }
-        return
+        error != null -> {
+            ProjectSearchEmptyState(
+                title = "搜索失败",
+                summary = error,
+                actionLabel = "重试",
+                onAction = onRetry,
+            )
+            return
+        }
+        results.isEmpty() -> {
+            ProjectSearchEmptyState(
+                title = "没有找到“$query”",
+                summary = "换一个关键词，或返回项目目录继续浏览",
+                actionLabel = "返回目录",
+                onAction = onClear,
+            )
+            return
+        }
     }
+
+    val highlightBackground = MaterialTheme.colorScheme.secondaryContainer
+    val highlightForeground = MaterialTheme.colorScheme.onSecondaryContainer
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().testTag("project-search-results"),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        items(results, key = { "${it.path}:${it.line}:${it.excerpt}" }) { result ->
+        item(key = "search-summary") {
+            Text(
+                if (results.size >= PROJECT_SEARCH_RESULT_LIMIT) {
+                    "已显示前 ${results.size} 条，可能还有更多"
+                } else {
+                    "已显示 ${results.size} 条"
+                },
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
+            )
+        }
+        items(results, key = { "${it.source.id}:${it.line}" }) { result ->
+            val fileName = result.path.substringAfterLast('/')
+            val parentPath = result.path.substringBeforeLast('/', missingDelimiterValue = "")
             Surface(
                 onClick = { onOpen(result) },
-                color = MaterialTheme.colorScheme.surfaceContainerLow,
-                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 72.dp)
+                    .semantics(mergeDescendants = true) {
+                        contentDescription = "${result.path}，第 ${result.line} 行，${result.excerpt}"
+                    },
+                color = ComposeColor.Transparent,
+                shape = MaterialTheme.shapes.small,
             ) {
-                Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.Top) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
                     ReaderIconBadge(Icons.Outlined.FindInPage, ReaderBadgeTone.SECONDARY, compact = true)
                     Column(modifier = Modifier.weight(1f).padding(start = 10.dp)) {
                         Text(
-                            "${result.path}:${result.line}",
+                            "$fileName · 第 ${result.line} 行",
                             style = MaterialTheme.typography.labelLarge,
                             fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                        if (parentPath.isNotEmpty()) {
+                            Text(
+                                parentPath,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(top = 2.dp),
+                            )
+                        }
                         Text(
-                            result.excerpt,
+                            highlightedSearchExcerpt(
+                                text = result.excerpt,
+                                query = query,
+                                background = highlightBackground,
+                                foreground = highlightForeground,
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 3.dp),
+                            modifier = Modifier.padding(top = 4.dp),
                         )
                     }
                 }
             }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
         }
+    }
+}
+
+@Composable
+private fun ProjectSearchEmptyState(
+    title: String,
+    summary: String,
+    actionLabel: String,
+    onAction: () -> Unit,
+) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            modifier = Modifier.padding(horizontal = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(Icons.Outlined.FindInPage, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 10.dp))
+            Text(
+                summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            TextButton(onClick = onAction, modifier = Modifier.padding(top = 4.dp)) {
+                Text(actionLabel)
+            }
+        }
+    }
+}
+
+private fun highlightedSearchExcerpt(
+    text: String,
+    query: String,
+    background: ComposeColor,
+    foreground: ComposeColor,
+) = buildAnnotatedString {
+    val needle = query.trim()
+    if (needle.isEmpty()) {
+        append(text)
+        return@buildAnnotatedString
+    }
+    var cursor = 0
+    while (cursor < text.length) {
+        val match = text.indexOf(needle, startIndex = cursor, ignoreCase = true)
+        if (match < 0) {
+            append(text.substring(cursor))
+            break
+        }
+        append(text.substring(cursor, match))
+        withStyle(SpanStyle(background = background, color = foreground, fontWeight = FontWeight.SemiBold)) {
+            append(text.substring(match, match + needle.length))
+        }
+        cursor = match + needle.length
     }
 }
 
@@ -2011,7 +2264,13 @@ private fun FileSwitcherSheet(
         ) {
             items(visible, key = { it.source.id }) { indexed ->
                 Surface(
-                    modifier = Modifier.fillMaxWidth().clickable { onOpen(indexed.source) },
+                    onClick = { onOpen(indexed.source) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = ReaderDimens.compactRowMinHeight)
+                        .semantics(mergeDescendants = true) {
+                            contentDescription = "打开 ${indexed.path}"
+                        },
                     color = ComposeColor.Transparent,
                     shape = MaterialTheme.shapes.small,
                 ) {

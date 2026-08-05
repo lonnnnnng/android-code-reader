@@ -24,6 +24,9 @@ import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 
+/** 项目搜索只返回手机端可流畅浏览的前 200 条，UI 会明确提示该显示上限。 @author long */
+internal const val PROJECT_SEARCH_RESULT_LIMIT = 200
+
 /**
  * 统一处理 SAF URI 和应用私有目录，避免阅读界面依赖具体来源。
  *
@@ -135,9 +138,9 @@ class DocumentRepository(private val context: Context) {
             hits.take(MAX_HITS_PER_FILE).forEach { hit ->
                 results += ProjectSearchResult(indexed.source, hit.path, hit.line, hit.excerpt)
             }
-            if (results.size >= MAX_PROJECT_SEARCH_RESULTS) break
+            if (results.size >= PROJECT_SEARCH_RESULT_LIMIT) break
         }
-        results.take(MAX_PROJECT_SEARCH_RESULTS)
+        results.take(PROJECT_SEARCH_RESULT_LIMIT)
     }
 
     private fun DocumentFile.toSourceEntry(): SourceEntry = SourceEntry(
@@ -340,7 +343,6 @@ class DocumentRepository(private val context: Context) {
         const val SEARCH_PAGE_CHARACTERS = 2 * 1024 * 1024
         const val SEARCH_FILE_LIMIT_BYTES = 2 * 1024 * 1024L
         const val UNKNOWN_FILE_SIZE = -1L
-        const val MAX_PROJECT_SEARCH_RESULTS = 200
         const val MAX_HITS_PER_FILE = 8
         val UTF8_BOM = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
         val UTF16_LE_BOM = byteArrayOf(0xFF.toByte(), 0xFE.toByte())

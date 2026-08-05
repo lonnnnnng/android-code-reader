@@ -185,4 +185,7 @@ internal object ReaderDimens {
     val readerActionIconSize = 19.dp
     val listRowMinHeight = 64.dp
     val compactRowMinHeight = 52.dp
+    // 首页将常用源码入口留出更高的扫描高度，低频导入入口保持紧凑但仍超过 48dp 触控标准。 @author long
+    val homePrimarySourceHeight = 76.dp
+    val homeSecondarySourceHeight = 64.dp
 }

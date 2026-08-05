@@ -31,6 +31,7 @@ import com.lonnnnnng.codereader.update.AppRelease
 import com.lonnnnnng.codereader.update.AppUpdateInstaller
 import com.lonnnnnng.codereader.update.AppUpdateRepository
 import com.lonnnnnng.codereader.update.isNewerVersion
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -100,6 +101,8 @@ data class ReaderUiState(
     val expandedDirectoryIds: Set<String> = emptySet(),
     val projectSearchQuery: String = "",
     val projectSearchResults: List<ProjectSearchResult> = emptyList(),
+    val projectSearchInProgress: Boolean = false,
+    val projectSearchError: String? = null,
     val recentProjects: List<RecentProjectRecord> = emptyList(),
     val tabs: List<ReaderTabState> = emptyList(),
     val activeTabId: String? = null,
@@ -236,6 +239,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         expandedDirectoryIds = emptySet(),
                         projectSearchQuery = "",
                         projectSearchResults = emptyList(),
+                        projectSearchInProgress = false,
+                        projectSearchError = null,
                         tabs = remainingTabs,
                         activeTabId = activeId,
                     )
@@ -296,16 +301,49 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun searchProject(query: String) {
         val normalizedQuery = query.trim()
-        _state.update { it.copy(projectSearchQuery = normalizedQuery) }
         if (normalizedQuery.isBlank()) {
-            _state.update { it.copy(projectSearchResults = emptyList()) }
+            _state.update {
+                it.copy(
+                    projectSearchQuery = "",
+                    projectSearchResults = emptyList(),
+                    projectSearchInProgress = false,
+                    projectSearchError = null,
+                )
+            }
             return
         }
-        launchBusy {
-            val results = repository.searchProject(_state.value.projectEntries, normalizedQuery)
-            // IO 搜索结束时用户可能已换了关键词，旧请求不得覆盖新结果。
-            _state.update { current ->
-                if (current.projectSearchQuery == normalizedQuery) current.copy(projectSearchResults = results) else current
+
+        _state.update {
+            it.copy(
+                projectSearchQuery = normalizedQuery,
+                projectSearchResults = emptyList(),
+                projectSearchInProgress = true,
+                projectSearchError = null,
+            )
+        }
+        viewModelScope.launch {
+            try {
+                val results = repository.searchProject(_state.value.projectEntries, normalizedQuery)
+                // 用户可在搜索期间清空或提交新关键词，旧请求只能更新仍然匹配的查询。 @author long
+                _state.update { current ->
+                    if (current.projectSearchQuery == normalizedQuery) {
+                        current.copy(projectSearchResults = results, projectSearchInProgress = false)
+                    } else {
+                        current
+                    }
+                }
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                _state.update { current ->
+                    if (current.projectSearchQuery == normalizedQuery) {
+                        current.copy(
+                            projectSearchInProgress = false,
+                            projectSearchError = error.message ?: error.javaClass.simpleName,
+                        )
+                    } else {
+                        current
+                    }
+                }
             }
         }
     }
@@ -576,6 +614,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     expandedDirectoryIds = emptySet(),
                     projectSearchResults = emptyList(),
                     projectSearchQuery = "",
+                    projectSearchInProgress = false,
+                    projectSearchError = null,
                 )
             }
             true
@@ -629,6 +669,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 expandedDirectoryIds = emptySet(),
                 projectSearchQuery = "",
                 projectSearchResults = emptyList(),
+                projectSearchInProgress = false,
+                projectSearchError = null,
                 message = null,
             )
         }

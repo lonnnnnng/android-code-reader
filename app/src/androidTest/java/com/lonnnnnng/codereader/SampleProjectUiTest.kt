@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.test.platform.app.InstrumentationRegistry
@@ -48,11 +49,11 @@ class SampleProjectUiTest {
         }
         composeRule.onNodeWithContentDescription("项目全局搜索").performClick()
         composeRule.onNodeWithText("搜索项目内容").performTextInput("Mermaid")
-        composeRule.onNodeWithContentDescription("开始搜索").performClick()
+        composeRule.onNodeWithText("搜索项目内容").performImeAction()
         composeRule.waitUntil(timeoutMillis = 10_000) {
-            composeRule.onAllNodesWithText("README.md:120").fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodesWithText("README.md · 第 120 行").fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithText("README.md:120").performClick()
+        composeRule.onNodeWithText("README.md · 第 120 行").performClick()
         composeRule.onNodeWithContentDescription("预览 Markdown").assertIsDisplayed()
 
         var editor: CodeEditor? = null
