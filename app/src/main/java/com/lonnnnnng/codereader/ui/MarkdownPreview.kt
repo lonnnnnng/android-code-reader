@@ -57,6 +57,7 @@ fun MarkdownPreview(
     fontSizeSp: Float,
     backgroundColorArgb: Int,
     command: ReaderCommand?,
+    active: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -95,7 +96,8 @@ fun MarkdownPreview(
             val contentChanged = binding.markdownText != markdownText ||
                 binding.darkTheme != darkTheme || binding.fontSizeSp != fontSizeSp ||
                 binding.backgroundColorArgb != backgroundColorArgb
-            if (contentChanged) {
+            // 隐藏预览只保留 WebView 实例，不重复执行完整 HTML 渲染；重新显示时再消费最新正文。
+            if (active && contentChanged) {
                 val encodedMarkdown = Base64.encodeToString(markdownText.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
                 val html = htmlTemplate
                     .replace("__BODY_CLASS__", if (darkTheme) "dark" else "")
@@ -119,7 +121,7 @@ fun MarkdownPreview(
                 binding.backgroundColorArgb = backgroundColorArgb
                 binding.searchQuery = null
             }
-            if (command != null && binding.commandId != command.id) {
+            if (active && command != null && binding.commandId != command.id) {
                 val delay = if (contentChanged) 500L else 0L
                 webView.postDelayed({ handleMarkdownCommand(webView, binding, command) }, delay)
                 binding.commandId = command.id

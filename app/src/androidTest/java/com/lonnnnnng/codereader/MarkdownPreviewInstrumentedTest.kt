@@ -7,12 +7,15 @@ import android.webkit.WebView
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.platform.app.InstrumentationRegistry
+import io.github.rosemoe.sora.widget.CodeEditor
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -26,12 +29,7 @@ class MarkdownPreviewInstrumentedTest {
 
     @Test
     fun commonSyntaxCodeMathAndMermaidAreRendered() {
-        composeRule.onNodeWithText("内置测试项目").performClick()
-        composeRule.waitUntil(timeoutMillis = 10_000) {
-            composeRule.onAllNodesWithTag("project-list").fetchSemanticsNodes().isNotEmpty()
-        }
-        composeRule.onNodeWithTag("project-list").performScrollToNode(hasText("README.md"))
-        composeRule.onNodeWithText("README.md").performClick()
+        openMarkdownDocument()
 
         val webView = waitForWebView()
         waitForMarkdown(webView)
@@ -47,11 +45,107 @@ class MarkdownPreviewInstrumentedTest {
         assertTrue("代码块没有生成复制按钮", domCount(webView, "pre .copy-code") >= 3)
     }
 
+    @Test
+    fun switchingMarkdownModesKeepsNativeReaderViewsAlive() {
+        openMarkdownDocument()
+        val webViewBefore = waitForWebView()
+        waitForMarkdown(webViewBefore)
+
+        composeRule.onNodeWithContentDescription("查看源码").performClick()
+        val editorBefore = waitForCodeEditor()
+        composeRule.onNodeWithContentDescription("预览 Markdown").performClick()
+
+        val webViewAfter = waitForWebView()
+        // 源码和预览切换只改变可见层，保留 WebView 才能保住预览滚动位置与渲染上下文。
+        assertSame("切换 Markdown 模式不应销毁并重建 WebView", webViewBefore, webViewAfter)
+
+        composeRule.onNodeWithContentDescription("查看源码").performClick()
+        val editorAfter = waitForCodeEditor()
+        assertSame("切换 Markdown 模式不应销毁并重建 Sora Editor", editorBefore, editorAfter)
+    }
+
+    @Test
+    fun switchingFromSourceTabBackToMarkdownKeepsPreviewWebViewAlive() {
+        openSourceDocument("app.js")
+        openMarkdownDocumentFromHome()
+
+        val webViewBefore = waitForWebView()
+        waitForMarkdown(webViewBefore)
+        composeRule.onNodeWithText("app.js").performClick()
+        composeRule.onNodeWithText("Markdown示例.md").performClick()
+
+        val webViewAfter = waitForWebView()
+        assertSame("从源码标签切回 Markdown 不应销毁并重建 WebView", webViewBefore, webViewAfter)
+        assertEquals(
+            "切回 Markdown 时已渲染内容应立即可用",
+            "\"true\"",
+            evaluate(webViewAfter, "document.documentElement.dataset.markdownReady || ''"),
+        )
+    }
+
+    @Test
+    fun switchingBetweenMarkdownTabsReusesPreviewWebView() {
+        openMarkdownDocument()
+        val webViewBefore = waitForWebView()
+        waitForMarkdown(webViewBefore)
+
+        composeRule.onNodeWithContentDescription("快速切换文件").performClick()
+        composeRule.onNodeWithContentDescription("打开 demo/README.md").performClick()
+        val webViewAfterOpen = waitForWebView()
+        waitForMarkdown(webViewAfterOpen)
+        assertSame("打开第二个 Markdown 标签不应销毁 WebView", webViewBefore, webViewAfterOpen)
+
+        assertEquals(
+            "第二个 Markdown 标签打开后应完成渲染",
+            "\"true\"",
+            evaluate(webViewAfterOpen, "document.documentElement.dataset.markdownReady || ''"),
+        )
+    }
+
+    private fun openMarkdownDocument() {
+        composeRule.onNodeWithText("内置测试项目").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithTag("project-list").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("project-list").performScrollToNode(hasText("README.md"))
+        composeRule.onNodeWithText("README.md").performClick()
+    }
+
+    private fun openSourceDocument(name: String) {
+        composeRule.onNodeWithText("内置测试项目").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithTag("project-list").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("project-list").performScrollToNode(hasText(name))
+        composeRule.onNodeWithText(name).performClick()
+    }
+
+    private fun openMarkdownDocumentFromHome() {
+        composeRule.onNodeWithContentDescription("返回").performClick()
+        composeRule.onNodeWithContentDescription("返回").performClick()
+        composeRule.onNodeWithText("Markdown 功能示例").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithTag("project-list").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("Markdown示例.md").performClick()
+    }
+
     private fun waitForWebView(): WebView {
         var result: WebView? = null
         composeRule.waitUntil(timeoutMillis = 10_000) {
             InstrumentationRegistry.getInstrumentation().runOnMainSync {
                 result = findWebView(composeRule.activity.findViewById(android.R.id.content))
+            }
+            result != null
+        }
+        return requireNotNull(result)
+    }
+
+    private fun waitForCodeEditor(): CodeEditor {
+        var result: CodeEditor? = null
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                result = findCodeEditor(composeRule.activity.findViewById(android.R.id.content))
             }
             result != null
         }
@@ -92,6 +186,15 @@ class MarkdownPreviewInstrumentedTest {
         if (view !is ViewGroup) return null
         repeat(view.childCount) { index ->
             findWebView(view.getChildAt(index))?.let { return it }
+        }
+        return null
+    }
+
+    private fun findCodeEditor(view: View): CodeEditor? {
+        if (view is CodeEditor) return view
+        if (view !is ViewGroup) return null
+        repeat(view.childCount) { index ->
+            findCodeEditor(view.getChildAt(index))?.let { return it }
         }
         return null
     }

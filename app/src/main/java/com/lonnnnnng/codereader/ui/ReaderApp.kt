@@ -108,6 +108,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color as ComposeColor
@@ -119,7 +120,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.SpanStyle
@@ -132,6 +135,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import com.lonnnnnng.codereader.BuildConfig
 import com.lonnnnnng.codereader.data.GitRepositoryAddress
@@ -1874,29 +1878,33 @@ private fun ReaderScreen(
         }
 
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-            if (document.fileType.markdown && state.markdownPreview) {
-                MarkdownPreview(
-                    markdownText = state.draftText,
-                    darkTheme = state.theme.isDark,
-                    fontSizeSp = state.settings.fontSizeSp,
-                    backgroundColorArgb = state.settings.background.colorArgb(state.theme.isDark),
-                    command = state.readerCommand,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                CodeEditorView(
-                    documentId = document.id,
-                    text = state.draftText,
-                    fileType = document.fileType,
-                    editable = state.editable,
-                    fontSizeSp = state.settings.fontSizeSp,
-                    backgroundColorArgb = state.settings.background.colorArgb(state.theme.isDark),
-                    wordWrap = state.settings.wordWrap,
-                    command = state.readerCommand,
-                    onTextChanged = onTextChanged,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
+            // 跨文件标签切换时继续保留 Markdown WebView，避免从源码文件回到 Markdown 时白屏重建。
+            val markdownSurfaceVisible = document.fileType.markdown && state.markdownPreview
+            MarkdownPreview(
+                markdownText = state.draftText,
+                darkTheme = state.theme.isDark,
+                fontSizeSp = state.settings.fontSizeSp,
+                backgroundColorArgb = state.settings.background.colorArgb(state.theme.isDark),
+                command = state.readerCommand,
+                active = markdownSurfaceVisible,
+                modifier = readerSurfaceLayer(markdownSurfaceVisible),
+            )
+            CodeEditorView(
+                documentId = document.id,
+                text = state.draftText,
+                fileType = document.fileType,
+                editable = state.editable,
+                fontSizeSp = state.settings.fontSizeSp,
+                backgroundColorArgb = state.settings.background.colorArgb(state.theme.isDark),
+                wordWrap = state.settings.wordWrap,
+                command = state.readerCommand,
+                onTextChanged = onTextChanged,
+                modifier = if (document.fileType.markdown) {
+                    readerSurfaceLayer(!state.markdownPreview)
+                } else {
+                    Modifier.fillMaxSize()
+                },
+            )
             if (document.hasMore) {
                 Button(
                     onClick = onLoadMore,
@@ -1955,6 +1963,15 @@ private fun ReaderScreen(
         }
     }
 }
+
+/** Markdown 的两个原生阅读内核保持在同一个层叠容器中，切换时只改变可见层。 @author long */
+private fun readerSurfaceLayer(visible: Boolean): Modifier = Modifier
+    .fillMaxSize()
+    .zIndex(if (visible) 1f else 0f)
+    .alpha(if (visible) 1f else 0f)
+    .then(
+        if (visible) Modifier else Modifier.clearAndSetSemantics { hideFromAccessibility() },
+    )
 
 @Composable
 private fun ReaderStatusBadge(text: String, emphasized: Boolean) {
