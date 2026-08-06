@@ -1,6 +1,7 @@
 package com.lonnnnnng.codereader
 
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasTestTag
@@ -20,6 +21,7 @@ import com.lonnnnnng.codereader.ui.ReaderDimens
 import org.junit.Rule
 import org.junit.Test
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 
 /** @author long */
@@ -90,6 +92,23 @@ class SettingsInstrumentedTest {
     }
 
     @Test
+    fun wordWrapSettingExposesAndUpdatesSwitchState() {
+        composeRule.onNodeWithContentDescription("设置").performClick()
+        composeRule.onNodeWithTag("settings-category-reading").performClick()
+        composeRule.onNodeWithTag("settings-list").performScrollToNode(hasTestTag("word-wrap-setting"))
+
+        val setting = composeRule.onNodeWithTag("word-wrap-setting")
+        val before = setting.fetchSemanticsNode().config[SemanticsProperties.ToggleableState]
+        setting.performClick()
+        composeRule.waitForIdle()
+        val after = setting.fetchSemanticsNode().config[SemanticsProperties.ToggleableState]
+        assertNotEquals("自动换行设置必须向无障碍服务暴露并更新开关状态", before, after)
+
+        // 恢复测试前状态，避免持久化配置影响后续源码阅读用例。
+        setting.performClick()
+    }
+
+    @Test
     fun onlineUpdateCanCheckPublishedGitHubRelease() {
         composeRule.onNodeWithContentDescription("设置").performClick()
         composeRule.onNodeWithTag("settings-category-update").performClick()
@@ -150,7 +169,9 @@ class SettingsInstrumentedTest {
             composeRule.waitForIdle()
         }
         composeRule.onNodeWithTag("recent-projects-empty").assertIsDisplayed()
-        composeRule.onNodeWithText("暂无最近打开的项目").assertIsDisplayed()
+        composeRule.onNodeWithText("还没有最近项目").assertIsDisplayed()
+        composeRule.onNodeWithText("打开项目").assertIsDisplayed()
+        composeRule.onNodeWithText("导入 ZIP").assertIsDisplayed()
 
         composeRule.activityRule.scenario.onActivity { activity ->
             activity.onBackPressedDispatcher.onBackPressed()

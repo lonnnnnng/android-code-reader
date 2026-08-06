@@ -176,16 +176,17 @@ internal object ReaderDimens {
     val pageVertical = 12.dp
     val sectionGap = 18.dp
     val itemGap = 8.dp
-    val topBarHeight = 56.dp
+    val topBarHeight = 52.dp
     val iconTouchTarget = 48.dp
     val iconBadge = 36.dp
     val compactIconBadge = 32.dp
     val readerTabVisualHeight = 32.dp
     val readerActionVisualSize = 32.dp
     val readerActionIconSize = 19.dp
-    val listRowMinHeight = 64.dp
+    val listRowMinHeight = 60.dp
     val compactRowMinHeight = 52.dp
     // 首页将常用源码入口留出更高的扫描高度，低频导入入口保持紧凑但仍超过 48dp 触控标准。 @author long
-    val homePrimarySourceHeight = 76.dp
-    val homeSecondarySourceHeight = 64.dp
+    val homePrimarySourceHeight = 72.dp
+    val homeSecondarySourceHeight = 60.dp
+    val settingsPreviewMaxHeight = 248.dp
 }

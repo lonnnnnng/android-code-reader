@@ -36,6 +36,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -263,6 +265,8 @@ fun ReaderApp(viewModel: ReaderViewModel) {
                             onBack = viewModel::navigateBack,
                             onOpenRecent = viewModel::openRecentProject,
                             onRemoveRecent = viewModel::removeRecentProject,
+                            onOpenFolder = { openFolder.launch(null) },
+                            onOpenZip = { openZip.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
                         )
                             AppScreen.SETTINGS -> SettingsScreen(
                             state = state,
@@ -404,7 +408,7 @@ private fun HomeScreen(
                     HomeFeatureRow(
                         title = "最近打开",
                         summary = when {
-                            state.recentProjects.isEmpty() -> "暂无项目记录"
+                            state.recentProjects.isEmpty() -> "打开过的项目会显示在这里"
                             state.recentProjects.size == 1 -> state.recentProjects.first().title
                             else -> "${state.recentProjects.first().title} 等 ${state.recentProjects.size} 个项目"
                         },
@@ -450,6 +454,8 @@ private fun RecentProjectsScreen(
     onBack: () -> Unit,
     onOpenRecent: (RecentProjectRecord) -> Unit,
     onRemoveRecent: (RecentProjectRecord) -> Unit,
+    onOpenFolder: () -> Unit,
+    onOpenZip: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -469,10 +475,29 @@ private fun RecentProjectsScreen(
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     ReaderIconBadge(Icons.Outlined.History, ReaderBadgeTone.SECONDARY)
-                    Text("暂无最近打开的项目", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "还没有最近项目",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    Text(
+                        "打开目录或导入 ZIP 后，可从这里快速继续阅读。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(onClick = onOpenFolder, modifier = Modifier.padding(top = 8.dp)) {
+                        Icon(Icons.Outlined.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("打开项目")
+                    }
+                    TextButton(onClick = onOpenZip) {
+                        Icon(Icons.Outlined.Archive, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("导入 ZIP")
+                    }
                 }
             }
         } else {
@@ -893,6 +918,7 @@ private fun SettingsCategoryList(
                     onClick = { onOpenPage(SettingsPage.READING) },
                 )
             }
+            item { SettingsNavigationDivider() }
             item {
                 SettingsCategoryRow(
                     title = "应用外观",
@@ -902,6 +928,7 @@ private fun SettingsCategoryList(
                     onClick = { onOpenPage(SettingsPage.APPEARANCE) },
                 )
             }
+            item { SettingsNavigationDivider() }
             item {
                 SettingsCategoryRow(
                     title = "关于与更新",
@@ -929,10 +956,19 @@ private fun SettingsCategoryRow(
         icon = icon,
         tone = ReaderBadgeTone.SECONDARY,
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp).testTag(testTag),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).testTag(testTag),
+        filled = false,
         trailing = {
             Icon(Icons.Outlined.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         },
+    )
+}
+
+@Composable
+private fun SettingsNavigationDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(start = 68.dp, end = 16.dp),
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
     )
 }
 
@@ -958,14 +994,18 @@ private fun SettingsWithPreview(
                 SettingsPreview(
                     settings = state.settings,
                     darkTheme = state.theme.isDark,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = ReaderDimens.settingsPreviewMaxHeight),
                 )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f))
                 settingsContent(Modifier.fillMaxWidth().weight(1f))
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ReadingSettingsList(
     state: ReaderUiState,
@@ -1006,6 +1046,7 @@ private fun ReadingSettingsList(
                             onValueChange = onSetFontSize,
                             valueRange = 11f..24f,
                             steps = 12,
+                            thumb = { ReaderSliderThumb() },
                             modifier = Modifier.testTag("font-size-slider"),
                         )
                     }
@@ -1037,7 +1078,14 @@ private fun ReadingSettingsList(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 5.dp)
-                        .clickable { onSetWordWrap(!settings.wordWrap) }
+                        .toggleable(
+                            value = settings.wordWrap,
+                            role = Role.Switch,
+                            onValueChange = onSetWordWrap,
+                        )
+                        .semantics {
+                            stateDescription = if (settings.wordWrap) "已开启自动换行" else "已关闭自动换行"
+                        }
                         .testTag("word-wrap-setting"),
                     color = MaterialTheme.colorScheme.surfaceContainerLow,
                     shape = MaterialTheme.shapes.medium,
@@ -1050,7 +1098,11 @@ private fun ReadingSettingsList(
                             Text("源码自动换行", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                             Text("长行不再需要横向滚动", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Switch(checked = settings.wordWrap, onCheckedChange = null)
+                        Switch(
+                            checked = settings.wordWrap,
+                            onCheckedChange = null,
+                            modifier = Modifier.clearAndSetSemantics {},
+                        )
                     }
                 }
             }
@@ -1284,7 +1336,7 @@ private fun <T> SettingsDropdownField(
             supportingText = {
                 Text(
                     optionSummary(selected),
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             },
@@ -1342,6 +1394,17 @@ private fun ColorSwatch(color: ComposeColor, borderColor: ComposeColor) {
             .background(color, CircleShape)
             .border(1.dp, borderColor.copy(alpha = 0.7f), CircleShape),
     )
+}
+
+@Composable
+private fun ReaderSliderThumb() {
+    Surface(
+        modifier = Modifier.size(18.dp),
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.primary,
+        border = BorderStroke(2.dp, MaterialTheme.colorScheme.surface),
+        shadowElevation = 1.dp,
+    ) {}
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -2013,8 +2076,15 @@ internal fun ReaderTabs(state: ReaderUiState, onSwitch: (String) -> Unit, onClos
                 Box(
                     modifier = Modifier
                         .height(ReaderDimens.iconTouchTarget)
-                        .widthIn(min = 96.dp, max = 184.dp)
-                        .clickable { onSwitch(tab.document.id) },
+                        .widthIn(min = 112.dp, max = 196.dp)
+                        .selectable(
+                            selected = active,
+                            role = Role.Tab,
+                            onClick = { onSwitch(tab.document.id) },
+                        )
+                        .semantics {
+                            stateDescription = if (active) "当前文件" else "未选中文件"
+                        },
                 ) {
                     // 标签的可见底板独立于 48dp 点击区域，降低阅读页占用感但不牺牲触控命中率。 @author long
                     Box(
@@ -2058,22 +2128,25 @@ internal fun ReaderTabs(state: ReaderUiState, onSwitch: (String) -> Unit, onClos
                         if (tab.dirty) {
                             Box(
                                 modifier = Modifier
-                                    .padding(horizontal = if (active) 0.dp else 10.dp)
+                                    .padding(start = 6.dp)
                                     .size(5.dp)
                                     .background(MaterialTheme.colorScheme.tertiary, CircleShape),
                             )
                         }
-                        if (active) {
-                            IconButton(
-                                onClick = { onClose(tab) },
-                                modifier = Modifier.size(ReaderDimens.iconTouchTarget),
-                            ) {
-                                Icon(
-                                    Icons.Outlined.Close,
-                                    contentDescription = "关闭 ${tab.document.name}",
-                                    modifier = Modifier.size(15.dp),
-                                )
-                            }
+                        IconButton(
+                            onClick = { onClose(tab) },
+                            modifier = Modifier.size(ReaderDimens.iconTouchTarget),
+                        ) {
+                            Icon(
+                                Icons.Outlined.Close,
+                                contentDescription = "关闭 ${tab.document.name}",
+                                tint = if (active) {
+                                    MaterialTheme.colorScheme.onSurface
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                modifier = Modifier.size(15.dp),
+                            )
                         }
                     }
                 }
@@ -2181,6 +2254,7 @@ internal fun ReaderActionBar(
                     icon = if (markdownPreview) Icons.Outlined.Code else Icons.Outlined.Visibility,
                     contentDescription = if (markdownPreview) "查看源码" else "预览 Markdown",
                     selected = markdownPreview,
+                    stateDescription = if (markdownPreview) "当前为 Markdown 预览" else "当前为 Markdown 源码",
                     onClick = onTogglePreview,
                 )
             }
@@ -2188,6 +2262,7 @@ internal fun ReaderActionBar(
                 icon = if (editable) Icons.Outlined.Lock else Icons.Outlined.Edit,
                 contentDescription = if (editable) "退出编辑" else "编辑",
                 selected = editable,
+                stateDescription = if (editable) "编辑已开启" else "当前为只读模式",
                 onClick = onToggleEditable,
             )
             if (dirty) {
@@ -2195,6 +2270,7 @@ internal fun ReaderActionBar(
                     icon = Icons.Outlined.Save,
                     contentDescription = "保存",
                     emphasized = true,
+                    stateDescription = "存在未保存修改",
                     onClick = onSave,
                 )
             }
@@ -2209,6 +2285,7 @@ private fun ReaderActionButton(
     contentDescription: String,
     selected: Boolean = false,
     emphasized: Boolean = false,
+    stateDescription: String? = null,
     onClick: () -> Unit,
 ) {
     val containerColor = when {
@@ -2225,7 +2302,10 @@ private fun ReaderActionButton(
         onClick = onClick,
         modifier = Modifier
             .size(ReaderDimens.iconTouchTarget)
-            .testTag("reader-action-touch-$contentDescription"),
+            .testTag("reader-action-touch-$contentDescription")
+            .semantics {
+                if (stateDescription != null) this.stateDescription = stateDescription
+            },
         colors = IconButtonDefaults.iconButtonColors(
             containerColor = ComposeColor.Transparent,
             contentColor = contentColor,
@@ -2366,6 +2446,7 @@ private fun ReaderSettingsSheet(
                 onValueChange = onSetFontSize,
                 valueRange = 11f..24f,
                 steps = 12,
+                thumb = { ReaderSliderThumb() },
             )
             Row(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
