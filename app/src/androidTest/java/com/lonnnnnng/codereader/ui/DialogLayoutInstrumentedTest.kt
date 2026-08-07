@@ -75,6 +75,9 @@ class DialogLayoutInstrumentedTest {
         }
 
         composeRule.onNodeWithTag("git-clone-dialog").assertIsDisplayed()
+        composeRule.onNodeWithTag("reader-dialog-header").assertIsDisplayed()
+        composeRule.onNodeWithTag("reader-dialog-content").assertIsDisplayed()
+        composeRule.onNodeWithTag("reader-dialog-actions").assertIsDisplayed()
         composeRule.onNodeWithTag("git-clone-confirm").assertIsNotEnabled()
         composeRule.onNodeWithTag("git-url-input")
             .performTextInput("https://github.com/octocat/Hello-World.git")

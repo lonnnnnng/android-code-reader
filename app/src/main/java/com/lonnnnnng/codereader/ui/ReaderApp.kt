@@ -74,8 +74,8 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.UnfoldMore
 import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -89,8 +89,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
@@ -321,42 +321,51 @@ fun ReaderApp(viewModel: ReaderViewModel) {
         }
 
         if (showExitConfirmation) {
-            AlertDialog(
+            ReaderDialog(
                 onDismissRequest = { showExitConfirmation = false },
                 modifier = Modifier.testTag("exit-confirmation-dialog"),
-                title = { Text("退出灵阅？") },
-                text = { Text("未保存的修改不会自动保存，确定要退出应用吗？") },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            showExitConfirmation = false
-                            (context as? Activity)?.finish()
-                        },
-                        modifier = Modifier.testTag("exit-confirm-button"),
-                    ) {
-                        Text("退出应用", color = MaterialTheme.colorScheme.error)
-                    }
-                },
-                dismissButton = {
+                title = "退出灵阅？",
+                icon = Icons.Outlined.Close,
+                actions = {
                     TextButton(
                         onClick = { showExitConfirmation = false },
                         modifier = Modifier.testTag("exit-cancel-button"),
                     ) {
                         Text("取消")
                     }
+                    Button(
+                        onClick = {
+                            showExitConfirmation = false
+                            (context as? Activity)?.finish()
+                        },
+                        modifier = Modifier.testTag("exit-confirm-button"),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError,
+                        ),
+                    ) {
+                        Text("退出应用")
+                    }
+                },
+            ) {
+                Text(
+                    "未保存的修改不会自动保存，确定要退出应用吗？",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        // Git 弹窗必须留在应用主题树中，否则暗色模式会回退到 Material 默认亮色方案。 @author long
+        if (showGitDialog) {
+            GitCloneDialog(
+                onDismiss = { showGitDialog = false },
+                onClone = { url ->
+                    showGitDialog = false
+                    viewModel.cloneGit(url)
                 },
             )
         }
-    }
-
-    if (showGitDialog) {
-        GitCloneDialog(
-            onDismiss = { showGitDialog = false },
-            onClone = { url ->
-                showGitDialog = false
-                viewModel.cloneGit(url)
-            },
-        )
     }
 }
 
@@ -1353,6 +1362,9 @@ private fun <T> SettingsDropdownField(
         ExposedDropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
+            modifier = Modifier
+                .readerMenuSurface()
+                .testTag("$selectorTag-menu"),
         ) {
             options.forEach { option ->
                 DropdownMenuItem(
@@ -1379,7 +1391,10 @@ private fun <T> SettingsDropdownField(
                         expanded = false
                         if (option != selected) onSelected(option)
                     },
-                    modifier = Modifier.testTag("$optionTagPrefix-${optionKey(option)}"),
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                    modifier = Modifier
+                        .heightIn(min = ReaderDimens.compactRowMinHeight)
+                        .testTag("$optionTagPrefix-${optionKey(option)}"),
                 )
             }
         }
@@ -1868,12 +1883,18 @@ private fun ReaderScreen(
                     ) { searchVisible = !searchVisible }
                     Box {
                         HeaderIconButton(Icons.Outlined.MoreVert, "更多") { menuExpanded = true }
-                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false },
+                            modifier = Modifier.readerMenuSurface().testTag("reader-more-menu"),
+                        ) {
                             if (!state.markdownPreview) {
                                 DropdownMenuItem(
                                     text = { Text("跳转到行") },
                                     leadingIcon = { Icon(Icons.Outlined.UnfoldMore, contentDescription = null) },
                                     onClick = { menuExpanded = false; showGotoLine = true },
+                                    contentPadding = PaddingValues(horizontal = 12.dp),
+                                    modifier = Modifier.heightIn(min = ReaderDimens.iconTouchTarget),
                                 )
                             }
                             if (document.fileType.markdown && state.markdownPreview && state.markdownHeadings.isNotEmpty()) {
@@ -1881,12 +1902,16 @@ private fun ReaderScreen(
                                     text = { Text("Markdown 目录") },
                                     leadingIcon = { Icon(Icons.AutoMirrored.Outlined.List, contentDescription = null) },
                                     onClick = { menuExpanded = false; showOutline = true },
+                                    contentPadding = PaddingValues(horizontal = 12.dp),
+                                    modifier = Modifier.heightIn(min = ReaderDimens.iconTouchTarget),
                                 )
                             }
                             DropdownMenuItem(
                                 text = { Text("阅读设置") },
                                 leadingIcon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
                                 onClick = { menuExpanded = false; showSettings = true },
+                                contentPadding = PaddingValues(horizontal = 12.dp),
+                                modifier = Modifier.heightIn(min = ReaderDimens.iconTouchTarget),
                             )
                             DropdownMenuItem(
                                 text = { Text(if (state.theme.isDark) "切换为亮色" else "切换为暗色") },
@@ -1894,6 +1919,8 @@ private fun ReaderScreen(
                                     Icon(if (state.theme.isDark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode, contentDescription = null)
                                 },
                                 onClick = { menuExpanded = false; onToggleTheme() },
+                                contentPadding = PaddingValues(horizontal = 12.dp),
+                                modifier = Modifier.heightIn(min = ReaderDimens.iconTouchTarget),
                             )
                         }
                     }
@@ -2010,19 +2037,31 @@ private fun ReaderScreen(
     pendingCloseTabId?.let { tabId ->
         val tab = state.tabs.firstOrNull { it.document.id == tabId }
         if (tab != null) {
-            AlertDialog(
+            ReaderDialog(
                 onDismissRequest = { pendingCloseTabId = null },
-                title = { Text("放弃未保存修改？") },
-                text = { Text("${tab.document.name} 还有未保存内容，关闭后无法恢复。") },
-                confirmButton = {
-                    TextButton(onClick = { pendingCloseTabId = null; onCloseTab(tabId) }) {
+                title = "放弃未保存修改？",
+                icon = Icons.Outlined.DeleteOutline,
+                modifier = Modifier.testTag("unsaved-close-dialog"),
+                actions = {
+                    TextButton(onClick = { pendingCloseTabId = null }) { Text("继续编辑") }
+                    Button(
+                        onClick = { pendingCloseTabId = null; onCloseTab(tabId) },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError,
+                        ),
+                        modifier = Modifier.testTag("discard-tab-button"),
+                    ) {
                         Text("放弃并关闭")
                     }
                 },
-                dismissButton = {
-                    TextButton(onClick = { pendingCloseTabId = null }) { Text("继续编辑") }
-                },
-            )
+            ) {
+                Text(
+                    "${tab.document.name} 还有未保存内容，关闭后无法恢复。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -2336,13 +2375,11 @@ private fun FileSwitcherSheet(
 ) {
     var filter by remember { mutableStateOf("") }
     val visible = entries.filter { filter.isBlank() || it.path.contains(filter, ignoreCase = true) }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Outlined.FolderOpen, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Text("快速切换文件", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).padding(start = 10.dp))
+    ReaderBottomSheet(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.testTag("file-switcher-sheet"),
+    ) {
+        ReaderSheetHeader(title = "快速切换文件", icon = Icons.Outlined.FolderOpen) {
             Text("${visible.size}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, fontFamily = FontFamily.Monospace)
         }
         OutlinedTextField(
@@ -2352,6 +2389,7 @@ private fun FileSwitcherSheet(
             singleLine = true,
             leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
             shape = MaterialTheme.shapes.medium,
+            colors = readerOverlayTextFieldColors(),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
         )
         LazyColumn(
@@ -2391,13 +2429,11 @@ private fun MarkdownOutlineSheet(
     onDismiss: () -> Unit,
     onHeading: (Int) -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.AutoMirrored.Outlined.List, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Text("Markdown 目录", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).padding(start = 10.dp))
+    ReaderBottomSheet(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.testTag("markdown-outline-sheet"),
+    ) {
+        ReaderSheetHeader(title = "Markdown 目录", icon = Icons.AutoMirrored.Outlined.List) {
             Text("${state.markdownHeadings.size}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, fontFamily = FontFamily.Monospace)
         }
         LazyColumn(modifier = Modifier.fillMaxWidth().height(460.dp)) {
@@ -2431,13 +2467,13 @@ private fun ReaderSettingsSheet(
     onSetFontSize: (Float) -> Unit,
     onSetWordWrap: (Boolean) -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ReaderBottomSheet(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.testTag("reader-settings-sheet"),
+    ) {
+        ReaderSheetHeader(title = "阅读设置", icon = Icons.Outlined.Settings)
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Text("阅读设置", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 10.dp))
-            }
-            Row(modifier = Modifier.fillMaxWidth().padding(top = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("字体大小", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
                 Text("${settings.fontSizeSp.toInt()} sp", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontFamily = FontFamily.Monospace)
             }
@@ -2468,20 +2504,26 @@ private fun ReaderSettingsSheet(
 private fun GotoLineDialog(onDismiss: () -> Unit, onGoto: (Int) -> Unit) {
     var lineText by remember { mutableStateOf("") }
     val line = lineText.toIntOrNull()
-    AlertDialog(
+    ReaderDialog(
         onDismissRequest = onDismiss,
-        title = { ReaderDialogTitle("跳转到行", Icons.Outlined.UnfoldMore) },
-        text = {
-            OutlinedTextField(
-                value = lineText,
-                onValueChange = { lineText = it.filter(Char::isDigit).take(8) },
-                label = { Text("行号") },
-                singleLine = true,
-            )
+        title = "跳转到行",
+        icon = Icons.Outlined.UnfoldMore,
+        modifier = Modifier.testTag("goto-line-dialog"),
+        actions = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+            Button(onClick = { onGoto(requireNotNull(line)) }, enabled = line != null && line > 0) { Text("跳转") }
         },
-        confirmButton = { TextButton(onClick = { onGoto(requireNotNull(line)) }, enabled = line != null && line > 0) { Text("跳转") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
+    ) {
+        OutlinedTextField(
+            value = lineText,
+            onValueChange = { lineText = it.filter(Char::isDigit).take(8) },
+            label = { Text("行号") },
+            singleLine = true,
+            shape = MaterialTheme.shapes.medium,
+            colors = readerOverlayTextFieldColors(),
+            modifier = Modifier.fillMaxWidth().testTag("goto-line-input"),
+        )
+    }
 }
 
 @Composable
@@ -2581,37 +2623,15 @@ internal fun GitCloneDialog(onDismiss: () -> Unit, onClone: (String) -> Unit) {
     val normalizedUrl = url.trim()
     val validUrl = remember(normalizedUrl) { GitRepositoryAddress.isValid(normalizedUrl) }
     val invalidUrl = normalizedUrl.isNotEmpty() && !validUrl
-    AlertDialog(
+    ReaderDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier.testTag("git-clone-dialog"),
-        title = { ReaderDialogTitle("克隆 Git 仓库", Icons.Outlined.CloudDownload) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    "输入公开仓库的 HTTPS 地址。克隆完成后会以仓库名称保存，并可在项目页获取最新代码。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = { url = it },
-                    label = { Text("仓库地址") },
-                    placeholder = { Text("https://github.com/owner/repository.git") },
-                    supportingText = {
-                        Text(if (invalidUrl) "请输入完整的公开 HTTPS Git 地址" else "固定显示 5 行，长地址会自动换行")
-                    },
-                    isError = invalidUrl,
-                    minLines = 5,
-                    maxLines = 5,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                    shape = MaterialTheme.shapes.medium,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { if (validUrl) onClone(normalizedUrl) }),
-                    modifier = Modifier.fillMaxWidth().testTag("git-url-input"),
-                )
+        title = "克隆 Git 仓库",
+        icon = Icons.Outlined.CloudDownload,
+        actions = {
+            TextButton(onClick = onDismiss, modifier = Modifier.testTag("git-clone-cancel")) {
+                Text("取消")
             }
-        },
-        confirmButton = {
             Button(
                 onClick = { onClone(normalizedUrl) },
                 enabled = validUrl,
@@ -2622,24 +2642,43 @@ internal fun GitCloneDialog(onDismiss: () -> Unit, onClone: (String) -> Unit) {
                 Text("开始克隆")
             }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss, modifier = Modifier.testTag("git-clone-cancel")) {
-                Text("取消")
-            }
-        },
-    )
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                "输入公开仓库的 HTTPS 地址。克隆完成后会以仓库名称保存，并可在项目页获取最新代码。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedTextField(
+                value = url,
+                onValueChange = { url = it },
+                label = { Text("仓库地址") },
+                placeholder = { Text("https://github.com/owner/repository.git") },
+                supportingText = {
+                    Text(if (invalidUrl) "请输入完整的公开 HTTPS Git 地址" else "固定显示 5 行，长地址会自动换行")
+                },
+                isError = invalidUrl,
+                minLines = 5,
+                maxLines = 5,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                shape = MaterialTheme.shapes.medium,
+                colors = readerOverlayTextFieldColors(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { if (validUrl) onClone(normalizedUrl) }),
+                modifier = Modifier.fillMaxWidth().testTag("git-url-input"),
+            )
+        }
+    }
 }
 
 @Composable
-internal fun ReaderDialogTitle(title: String, icon: ImageVector) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        ReaderIconBadge(icon = icon, tone = ReaderBadgeTone.PRIMARY)
-        Text(title, style = MaterialTheme.typography.titleLarge)
-    }
-}
+private fun readerOverlayTextFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+    errorContainerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.32f),
+    focusedBorderColor = MaterialTheme.colorScheme.primary,
+    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+)
 
 private fun persistUri(context: android.content.Context, uri: Uri) {
     runCatching {

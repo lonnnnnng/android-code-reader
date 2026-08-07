@@ -4,14 +4,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.SystemUpdate
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
@@ -95,49 +91,13 @@ internal fun AppUpdateDialog(
 ) {
     val release = state.release ?: return
     if (!state.dialogVisible) return
-    AlertDialog(
+    ReaderDialog(
         onDismissRequest = onDismiss,
-        title = {
-            ReaderDialogTitle(
-                if (state.phase == AppUpdatePhase.READY) "更新已下载" else "发现新版本 v${release.versionName}",
-                Icons.Outlined.SystemUpdate,
-            )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("${release.title} · ${formatBytes(release.apk.sizeBytes)}", style = MaterialTheme.typography.bodyMedium)
-                Text(
-                    "安装前会校验 SHA-256、应用 ID、版本号和签名证书。",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text("更新说明", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                Text(
-                    release.notes.ifBlank { "此版本没有附加更新说明。" },
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier
-                        .heightIn(max = 280.dp)
-                        .verticalScroll(rememberScrollState())
-                        .testTag("update-release-notes"),
-                )
-                if (state.phase == AppUpdatePhase.DOWNLOADING) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.fillMaxWidth().testTag("update-download-progress-area"),
-                    ) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("正在下载", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("${state.progressPercent}%", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                        }
-                        LinearProgressIndicator(
-                            progress = { state.progressPercent / 100f },
-                            modifier = Modifier.fillMaxWidth().testTag("update-dialog-progress"),
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
+        title = if (state.phase == AppUpdatePhase.READY) "更新已下载" else "发现新版本 v${release.versionName}",
+        icon = Icons.Outlined.SystemUpdate,
+        modifier = Modifier.testTag("update-available-dialog"),
+        actions = {
+            TextButton(onClick = onDismiss, modifier = Modifier.testTag("dismiss-update-dialog")) { Text("稍后") }
             when (state.phase) {
                 AppUpdatePhase.AVAILABLE -> Button(onClick = onDownload, modifier = Modifier.testTag("download-update-button")) { Text("下载更新") }
                 AppUpdatePhase.READY -> Button(onClick = onInstall, modifier = Modifier.testTag("install-update-button")) { Text("立即安装") }
@@ -149,9 +109,37 @@ internal fun AppUpdateDialog(
                 else -> Unit
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss, modifier = Modifier.testTag("dismiss-update-dialog")) { Text("稍后") } },
-        modifier = Modifier.testTag("update-available-dialog"),
-    )
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("${release.title} · ${formatBytes(release.apk.sizeBytes)}", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "安装前会校验 SHA-256、应用 ID、版本号和签名证书。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text("更新说明", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            Text(
+                release.notes.ifBlank { "此版本没有附加更新说明。" },
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.testTag("update-release-notes"),
+            )
+            if (state.phase == AppUpdatePhase.DOWNLOADING) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth().testTag("update-download-progress-area"),
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("正在下载", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("${state.progressPercent}%", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    }
+                    LinearProgressIndicator(
+                        progress = { state.progressPercent / 100f },
+                        modifier = Modifier.fillMaxWidth().testTag("update-dialog-progress"),
+                    )
+                }
+            }
+        }
+    }
 }
 
 private fun updateStatusText(state: AppUpdateUiState): String = when (state.phase) {
