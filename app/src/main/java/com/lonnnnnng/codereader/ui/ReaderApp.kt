@@ -1,6 +1,8 @@
 package com.lonnnnnng.codereader.ui
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -50,17 +52,24 @@ import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.automirrored.outlined.ManageSearch
 import androidx.compose.material.icons.automirrored.outlined.NavigateBefore
 import androidx.compose.material.icons.automirrored.outlined.NavigateNext
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Archive
+import androidx.compose.material.icons.outlined.BookmarkAdd
+import androidx.compose.material.icons.outlined.BookmarkRemove
+import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.FindInPage
+import androidx.compose.material.icons.outlined.FilterAlt
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.History
@@ -68,6 +77,7 @@ import androidx.compose.material.icons.outlined.HourglassTop
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
@@ -141,15 +151,23 @@ import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import com.lonnnnnng.codereader.BuildConfig
 import com.lonnnnnng.codereader.data.GitRepositoryAddress
-import com.lonnnnnng.codereader.data.PROJECT_SEARCH_RESULT_LIMIT
+import com.lonnnnnng.codereader.data.ReadingDocumentState
 import com.lonnnnnng.codereader.data.RecentProjectRecord
+import com.lonnnnnng.codereader.domain.ProjectSearchOptions
+import com.lonnnnnng.codereader.domain.ProjectSearchScope
+import com.lonnnnnng.codereader.domain.TextSearchMatcher
+import com.lonnnnnng.codereader.domain.TextSearchOptions
 import com.lonnnnnng.codereader.model.AppColorPalette
+import com.lonnnnnng.codereader.model.BinaryFileInfo
+import com.lonnnnnng.codereader.model.EntryLocation
 import com.lonnnnnng.codereader.model.FileType
 import com.lonnnnnng.codereader.model.ProjectSearchResult
 import com.lonnnnnng.codereader.model.ProjectTreeEntry
 import com.lonnnnnng.codereader.model.ReaderBackground
 import com.lonnnnnng.codereader.model.ReaderTheme
 import com.lonnnnnng.codereader.model.SourceEntry
+import com.lonnnnnng.codereader.model.TextEncoding
+import com.lonnnnnng.codereader.share.ReaderFileOpener
 import com.lonnnnnng.codereader.update.AppUpdateInstaller
 import java.io.File
 
@@ -201,12 +219,17 @@ fun ReaderApp(viewModel: ReaderViewModel) {
                 .onFailure { viewModel.reportUpdateMessage("无法打开安装来源设置：${it.message ?: it.javaClass.simpleName}") }
         }
     }
+    val copyFullPath: (String) -> Unit = { value ->
+        val clipboard = context.getSystemService(ClipboardManager::class.java)
+        clipboard.setPrimaryClip(ClipData.newPlainText("灵阅文件路径", value))
+        viewModel.reportMessage("已复制完整路径")
+    }
 
     // 系统侧边手势与返回键共用现有页面栈，只有首页没有可返回页面时才进入退出确认。
     BackHandler {
         val operation = state.operation
         if (operation != null) {
-            if (operation.cancellable) viewModel.cancelGitOperation()
+            if (operation.cancellable) viewModel.cancelOperation()
         } else if (showExitConfirmation) {
             showExitConfirmation = false
         } else if (showGitDialog) {
@@ -288,8 +311,13 @@ fun ReaderApp(viewModel: ReaderViewModel) {
                             onBack = viewModel::navigateBack,
                             onEntry = viewModel::openEntry,
                             onSearch = viewModel::searchProject,
+                            onSearchWithOptions = viewModel::searchProject,
+                            onSearchOptionsChanged = viewModel::updateProjectSearchOptions,
                             onSearchResult = viewModel::openSearchResult,
+                            onPreviousSearchResult = { viewModel.openAdjacentProjectSearchResult(false) },
+                            onNextSearchResult = { viewModel.openAdjacentProjectSearchResult(true) },
                             onUpdateGit = viewModel::updateGitRepository,
+                            onRefresh = viewModel::refreshProject,
                             onToggleTheme = viewModel::toggleTheme,
                         )
                             AppScreen.READER -> ReaderScreen(
@@ -303,18 +331,52 @@ fun ReaderApp(viewModel: ReaderViewModel) {
                             onCloseTab = viewModel::closeTab,
                             onOpenEntry = viewModel::openEntry,
                             onSearchInFile = viewModel::searchInFile,
+                            onClearFileSearch = viewModel::clearFileSearch,
+                            onCancelFileSearch = viewModel::cancelFileSearch,
                             onGotoLine = viewModel::gotoLine,
                             onGotoHeading = viewModel::gotoMarkdownHeading,
+                            onReadingPositionChanged = viewModel::updateReadingPosition,
+                            onCursorPositionChanged = viewModel::updateCursorPosition,
+                            onToggleFileBookmark = viewModel::toggleFileBookmark,
+                            onToggleLineBookmark = viewModel::toggleLineBookmark,
+                            onOpenReadingBookmark = viewModel::openReadingBookmark,
+                            onRemoveFileBookmark = viewModel::removeFileBookmark,
+                            onRemoveLineBookmark = viewModel::removeLineBookmark,
                             onSetFontSize = viewModel::setFontSize,
                             onSetWordWrap = viewModel::setWordWrap,
                             onLoadMore = viewModel::loadMore,
+                            onSetEncoding = viewModel::setDocumentEncoding,
                             onToggleTheme = viewModel::toggleTheme,
+                            onLocateCurrentFile = viewModel::locateCurrentFileInProject,
+                            onCopyFullPath = copyFullPath,
                             )
+                            AppScreen.BINARY -> state.binaryFile?.let { binaryFile ->
+                                BinaryFileScreen(
+                                    fileInfo = binaryFile,
+                                    onBack = viewModel::navigateBack,
+                                    onOpenExternal = {
+                                        runCatching {
+                                            context.startActivity(ReaderFileOpener.createChooserIntent(context, binaryFile))
+                                        }.onFailure { error ->
+                                            viewModel.reportMessage(
+                                                "无法交给其他应用打开：${error.message ?: error.javaClass.simpleName}",
+                                            )
+                                        }
+                                    },
+                                )
+                            }
+                            AppScreen.ERROR -> state.failure?.let { failure ->
+                                ReaderFailureScreen(
+                                    failure = failure,
+                                    onBack = viewModel::navigateBack,
+                                    onRetry = viewModel::retryLastFailure,
+                                )
+                            }
                         }
                     }
 
                     state.operation?.let { operation ->
-                        ReaderOperationOverlay(operation, viewModel::cancelGitOperation)
+                        ReaderOperationOverlay(operation, viewModel::cancelOperation)
                     }
                 }
             }
@@ -533,6 +595,146 @@ private fun RecentProjectsScreen(
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f),
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun BinaryFileScreen(
+    fileInfo: BinaryFileInfo,
+    onBack: () -> Unit,
+    onOpenExternal: () -> Unit,
+) {
+    val source = when (val location = fileInfo.location) {
+        is EntryLocation.Local -> "本地项目 · ${location.file.parentFile?.name ?: "应用文件"}"
+        is EntryLocation.Saf -> "文档提供方 · ${location.uri.authority ?: "外部来源"}"
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .testTag("binary-file-page"),
+    ) {
+        ProductHeader(
+            title = "无法作为源码打开",
+            subtitle = "二进制文件",
+            onBack = onBack,
+        )
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = ReaderDimens.pageHorizontal, vertical = 24.dp),
+        ) {
+            item {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 22.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    ReaderIconBadge(Icons.Outlined.Description, ReaderBadgeTone.TERTIARY)
+                    Text(
+                        fileInfo.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                    Text(
+                        "文件包含非文本内容，灵阅不会尝试解码或编辑。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 5.dp),
+                    )
+                }
+            }
+            item { BinaryFileInfoRow("类型", fileInfo.mimeType) }
+            item { BinaryFileInfoRow("大小", if (fileInfo.size >= 0) formatBytes(fileInfo.size) else "未知") }
+            item { BinaryFileInfoRow("来源", source) }
+            item {
+                Button(
+                    onClick = onOpenExternal,
+                    modifier = Modifier.fillMaxWidth().padding(top = 24.dp).testTag("binary-open-external"),
+                ) {
+                    Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("使用其他应用打开")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BinaryFileInfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(horizontal = 4.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(58.dp),
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = FontFamily.Monospace,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+    }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f))
+}
+
+@Composable
+internal fun ReaderFailureScreen(
+    failure: ReaderFailureState,
+    onBack: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .testTag("reader-failure-page"),
+    ) {
+        ProductHeader(
+            title = failure.title,
+            subtitle = "可以返回或重新尝试",
+            onBack = onBack,
+        )
+        Column(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            ReaderIconBadge(Icons.Outlined.ErrorOutline, ReaderBadgeTone.TERTIARY)
+            Text(
+                failure.title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 14.dp),
+            )
+            Text(
+                failure.detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 5,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 7.dp),
+            )
+            Button(
+                onClick = onRetry,
+                modifier = Modifier.fillMaxWidth().padding(top = 24.dp).testTag("reader-failure-retry"),
+            ) {
+                Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("重新尝试")
+            }
+            TextButton(onClick = onBack, modifier = Modifier.padding(top = 4.dp)) {
+                Text("返回")
             }
         }
     }
@@ -1429,14 +1631,21 @@ internal fun BrowserScreen(
     onBack: () -> Unit,
     onEntry: (SourceEntry) -> Unit,
     onSearch: (String) -> Unit,
+    onSearchWithOptions: (String, ProjectSearchOptions) -> Unit = { query, _ -> onSearch(query) },
+    onSearchOptionsChanged: (ProjectSearchOptions) -> Unit = {},
     onSearchResult: (ProjectSearchResult) -> Unit,
+    onPreviousSearchResult: () -> Unit = {},
+    onNextSearchResult: () -> Unit = {},
     onUpdateGit: () -> Unit,
     onToggleTheme: () -> Unit,
+    onRefresh: () -> Unit = {},
 ) {
     val browserTitle = state.browserTitle ?: return
     var searchVisible by rememberSaveable(browserTitle) { mutableStateOf(state.projectSearchQuery.isNotBlank()) }
     var searchText by rememberSaveable(browserTitle) { mutableStateOf(state.projectSearchQuery) }
+    var showSearchOptions by remember { mutableStateOf(false) }
     val searchFocusRequester = remember(browserTitle) { FocusRequester() }
+    val projectListState = rememberLazyListState()
 
     LaunchedEffect(searchVisible) {
         if (searchVisible) searchFocusRequester.requestFocus()
@@ -1444,11 +1653,17 @@ internal fun BrowserScreen(
 
     val clearSearch = {
         searchText = ""
-        onSearch("")
+        onSearchWithOptions("", state.projectSearchOptions)
     }
     val submitSearch = {
         val query = searchText.trim()
-        if (query.isNotEmpty()) onSearch(query)
+        if (query.isNotEmpty()) onSearchWithOptions(query, state.projectSearchOptions)
+    }
+
+    LaunchedEffect(state.projectRevealEntryId, state.visibleProjectEntries.size) {
+        val revealId = state.projectRevealEntryId ?: return@LaunchedEffect
+        val index = state.visibleProjectEntries.indexOfFirst { it.source.id == revealId }
+        if (index >= 0) projectListState.animateScrollToItem(index)
     }
 
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -1458,7 +1673,7 @@ internal fun BrowserScreen(
                 state.projectSearchInProgress -> "正在搜索项目内容"
                 state.projectSearchError != null -> "项目搜索失败"
                 state.projectSearchQuery.isNotBlank() && state.projectSearchResults.isEmpty() -> "没有匹配结果"
-                state.projectSearchQuery.isNotBlank() -> "已显示 ${state.projectSearchResults.size} 条搜索结果"
+                state.projectSearchQuery.isNotBlank() -> "命中 ${state.projectSearchTotalMatches} 处 · ${state.projectSearchMatchedFiles} 个文件"
                 else -> "${state.projectEntries.count { !it.source.isDirectory }} 个文件"
             },
             onBack = onBack,
@@ -1473,6 +1688,11 @@ internal fun BrowserScreen(
                 )
                 // 搜索模式只保留关闭入口，避免窄屏标题栏同时堆放四组操作。 @author long
                 if (!searchVisible) {
+                    HeaderIconButton(
+                        icon = Icons.Outlined.Refresh,
+                        contentDescription = "刷新项目目录",
+                        onClick = onRefresh,
+                    )
                     if (state.gitRepositoryRoot != null) {
                         HeaderIconButton(
                             icon = Icons.Outlined.Sync,
@@ -1490,7 +1710,9 @@ internal fun BrowserScreen(
                     value = searchText,
                     onValueChange = { value ->
                         searchText = value
-                        if (state.projectSearchQuery.isNotBlank() && value.trim() != state.projectSearchQuery) onSearch("")
+                        if (state.projectSearchQuery.isNotBlank() && value.trim() != state.projectSearchQuery) {
+                            onSearchWithOptions("", state.projectSearchOptions)
+                        }
                     },
                     label = { Text("搜索项目内容") },
                     singleLine = true,
@@ -1498,14 +1720,27 @@ internal fun BrowserScreen(
                     trailingIcon = {
                         val normalizedText = searchText.trim()
                         val querySubmitted = normalizedText.isNotEmpty() && normalizedText == state.projectSearchQuery
-                        IconButton(
-                            onClick = if (querySubmitted) clearSearch else submitSearch,
-                            enabled = normalizedText.isNotEmpty(),
-                        ) {
-                            Icon(
-                                if (querySubmitted) Icons.Outlined.Close else Icons.Outlined.Search,
-                                contentDescription = if (querySubmitted) "清除项目搜索" else "开始搜索",
-                            )
+                        Row {
+                            IconButton(onClick = { showSearchOptions = true }) {
+                                Icon(
+                                    Icons.Outlined.FilterAlt,
+                                    contentDescription = "项目搜索选项",
+                                    tint = if (state.projectSearchOptions.activeCount > 0) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                )
+                            }
+                            IconButton(
+                                onClick = if (querySubmitted) clearSearch else submitSearch,
+                                enabled = normalizedText.isNotEmpty(),
+                            ) {
+                                Icon(
+                                    if (querySubmitted) Icons.Outlined.Close else Icons.Outlined.Search,
+                                    contentDescription = if (querySubmitted) "清除项目搜索" else "开始搜索",
+                                )
+                            }
                         }
                     },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -1516,6 +1751,16 @@ internal fun BrowserScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                 )
+                if (state.projectSearchOptions.activeCount > 0) {
+                    Text(
+                        projectSearchOptionsSummary(state.projectSearchOptions),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 7.dp),
+                    )
+                }
                 if (state.projectSearchInProgress) {
                     LinearProgressIndicator(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -1530,21 +1775,47 @@ internal fun BrowserScreen(
                 results = state.projectSearchResults,
                 searching = state.projectSearchInProgress,
                 error = state.projectSearchError,
-                onRetry = { onSearch(state.projectSearchQuery) },
+                options = state.projectSearchOptions,
+                totalMatches = state.projectSearchTotalMatches,
+                matchedFiles = state.projectSearchMatchedFiles,
+                truncated = state.projectSearchResultsTruncated,
+                activeResultIndex = state.projectSearchActiveResultIndex,
+                onRetry = { onSearchWithOptions(state.projectSearchQuery, state.projectSearchOptions) },
                 onClear = clearSearch,
                 onOpen = onSearchResult,
+                onPrevious = onPreviousSearchResult,
+                onNext = onNextSearchResult,
             )
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize().testTag("project-list"),
+                state = projectListState,
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 items(state.visibleProjectEntries, key = { it.source.id }) { indexed ->
-                    ProjectTreeRow(indexed, state.expandedDirectoryIds, onEntry)
+                    ProjectTreeRow(
+                        indexed = indexed,
+                        expandedIds = state.expandedDirectoryIds,
+                        revealed = indexed.source.id == state.projectRevealEntryId,
+                        onEntry = onEntry,
+                    )
                 }
             }
         }
+    }
+
+    if (showSearchOptions) {
+        ProjectSearchOptionsSheet(
+            options = state.projectSearchOptions,
+            fileTypes = state.projectFileTypes,
+            currentDirectoryPath = state.currentProjectDirectoryPath,
+            onDismiss = { showSearchOptions = false },
+            onApply = {
+                showSearchOptions = false
+                onSearchOptionsChanged(it)
+            },
+        )
     }
 }
 
@@ -1552,6 +1823,7 @@ internal fun BrowserScreen(
 private fun ProjectTreeRow(
     indexed: ProjectTreeEntry,
     expandedIds: Set<String>,
+    revealed: Boolean = false,
     onEntry: (SourceEntry) -> Unit,
 ) {
     val entry = indexed.source
@@ -1565,7 +1837,11 @@ private fun ProjectTreeRow(
                 contentDescription = if (entry.isDirectory) "${indexed.path}，目录" else "${indexed.path}，${type.displayName}"
                 if (entry.isDirectory) stateDescription = if (expanded) "已展开" else "已折叠"
             },
-        color = if (expanded) MaterialTheme.colorScheme.surfaceContainerLow else ComposeColor.Transparent,
+        color = when {
+            revealed -> MaterialTheme.colorScheme.secondaryContainer
+            expanded -> MaterialTheme.colorScheme.surfaceContainerLow
+            else -> ComposeColor.Transparent
+        },
         shape = MaterialTheme.shapes.small,
     ) {
         Row(
@@ -1625,9 +1901,16 @@ private fun ProjectSearchResults(
     results: List<ProjectSearchResult>,
     searching: Boolean,
     error: String?,
+    options: ProjectSearchOptions,
+    totalMatches: Int,
+    matchedFiles: Int,
+    truncated: Boolean,
+    activeResultIndex: Int,
     onRetry: () -> Unit,
     onClear: () -> Unit,
     onOpen: (ProjectSearchResult) -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
 ) {
     when {
         searching -> {
@@ -1671,16 +1954,44 @@ private fun ProjectSearchResults(
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
     ) {
         item(key = "search-summary") {
-            Text(
-                if (results.size >= PROJECT_SEARCH_RESULT_LIMIT) {
-                    "已显示前 ${results.size} 条，可能还有更多"
-                } else {
-                    "已显示 ${results.size} 条"
-                },
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        buildString {
+                            append("$totalMatches 个命中 · $matchedFiles 个文件")
+                            if (truncated) append(" · 仅显示前 ${results.size} 个位置")
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (options.activeCount > 0) {
+                        Text(
+                            projectSearchOptionsSummary(options),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                if (results.isNotEmpty()) {
+                    Text(
+                        if (activeResultIndex >= 0) "${activeResultIndex + 1}/${results.size}" else "未定位",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    IconButton(onClick = onPrevious, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.AutoMirrored.Outlined.NavigateBefore, contentDescription = "上一个搜索结果")
+                    }
+                    IconButton(onClick = onNext, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.AutoMirrored.Outlined.NavigateNext, contentDescription = "下一个搜索结果")
+                    }
+                }
+            }
         }
         items(results, key = { "${it.source.id}:${it.line}" }) { result ->
             val fileName = result.path.substringAfterLast('/')
@@ -1725,6 +2036,7 @@ private fun ProjectSearchResults(
                             highlightedSearchExcerpt(
                                 text = result.excerpt,
                                 query = query,
+                                options = options.text,
                                 background = highlightBackground,
                                 foreground = highlightForeground,
                             ),
@@ -1738,6 +2050,203 @@ private fun ProjectSearchResults(
                 }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+        }
+    }
+}
+
+private fun projectSearchOptionsSummary(options: ProjectSearchOptions): String = buildList {
+    if (options.text.caseSensitive) add("区分大小写")
+    if (options.text.wholeWord) add("整词")
+    if (options.text.regularExpression) add("正则")
+    options.fileType?.let { add(it.displayName) }
+    if (options.scope == ProjectSearchScope.CURRENT_DIRECTORY) add("当前目录")
+    if (options.pathFilter.isNotBlank()) add("路径：${options.pathFilter.trim()}")
+}.joinToString(" · ")
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProjectSearchOptionsSheet(
+    options: ProjectSearchOptions,
+    fileTypes: List<com.lonnnnnng.codereader.model.FileType>,
+    currentDirectoryPath: String?,
+    onDismiss: () -> Unit,
+    onApply: (ProjectSearchOptions) -> Unit,
+) {
+    var draft by remember(options) { mutableStateOf(options) }
+    val fileTypeChoices = remember(fileTypes) { listOf<FileType?>(null) + fileTypes }
+    val scopeChoices = remember(currentDirectoryPath) {
+        buildList {
+            add(ProjectSearchScope.PROJECT)
+            if (currentDirectoryPath != null) add(ProjectSearchScope.CURRENT_DIRECTORY)
+        }
+    }
+    ReaderBottomSheet(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.testTag("project-search-options-sheet"),
+    ) {
+        ReaderSheetHeader(title = "项目搜索选项", icon = Icons.Outlined.FilterAlt)
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().heightIn(max = 620.dp),
+            contentPadding = PaddingValues(bottom = 20.dp),
+        ) {
+            item {
+                SearchToggleRow(
+                    title = "区分大小写",
+                    summary = "只匹配与关键词大小写完全一致的文本",
+                    checked = draft.text.caseSensitive,
+                    onCheckedChange = { draft = draft.copy(text = draft.text.copy(caseSensitive = it)) },
+                    tag = "search-case-sensitive",
+                )
+                SearchToggleRow(
+                    title = "整词匹配",
+                    summary = "忽略嵌在其他标识符中的部分文本",
+                    checked = draft.text.wholeWord,
+                    onCheckedChange = { draft = draft.copy(text = draft.text.copy(wholeWord = it)) },
+                    tag = "search-whole-word",
+                )
+                SearchToggleRow(
+                    title = "正则表达式",
+                    summary = "使用 Java/Sora 正则语法进行匹配",
+                    checked = draft.text.regularExpression,
+                    onCheckedChange = { draft = draft.copy(text = draft.text.copy(regularExpression = it)) },
+                    tag = "search-regular-expression",
+                )
+            }
+            item {
+                SearchSelectionField(
+                    label = "文件类型",
+                    selected = draft.fileType,
+                    options = fileTypeChoices,
+                    optionTitle = { it?.displayName ?: "全部文件类型" },
+                    onSelected = { draft = draft.copy(fileType = it) },
+                    tag = "search-file-type",
+                )
+            }
+            item {
+                SearchSelectionField(
+                    label = "搜索范围",
+                    selected = draft.scope,
+                    options = scopeChoices,
+                    optionTitle = {
+                        if (it == ProjectSearchScope.CURRENT_DIRECTORY) {
+                            "当前目录 · ${currentDirectoryPath?.ifEmpty { "项目根目录" } ?: "不可用"}"
+                        } else {
+                            "整个项目"
+                        }
+                    },
+                    onSelected = {
+                        draft = draft.copy(
+                            scope = it,
+                            directoryPath = if (it == ProjectSearchScope.CURRENT_DIRECTORY) currentDirectoryPath else null,
+                        )
+                    },
+                    tag = "search-scope",
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = draft.pathFilter,
+                    onValueChange = { draft = draft.copy(pathFilter = it) },
+                    label = { Text("文件名或路径") },
+                    supportingText = { Text("只扫描路径中包含这段文字的文件") },
+                    leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.medium,
+                    colors = readerOverlayTextFieldColors(),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).testTag("search-path-filter"),
+                )
+            }
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    TextButton(
+                        onClick = { draft = ProjectSearchOptions(directoryPath = currentDirectoryPath) },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("恢复默认") }
+                    Button(
+                        onClick = { onApply(draft) },
+                        modifier = Modifier.weight(1f).testTag("apply-project-search-options"),
+                    ) { Text("应用搜索选项") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchToggleRow(
+    title: String,
+    summary: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    tag: String,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange)
+            .testTag(tag),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(checked = checked, onCheckedChange = null, modifier = Modifier.clearAndSetSemantics {})
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun <T> SearchSelectionField(
+    label: String,
+    selected: T,
+    options: List<T>,
+    optionTitle: (T) -> String,
+    onSelected: (T) -> Unit,
+    tag: String,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = !expanded },
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+    ) {
+        OutlinedTextField(
+            value = optionTitle(selected),
+            onValueChange = {},
+            readOnly = true,
+            singleLine = true,
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            shape = MaterialTheme.shapes.medium,
+            colors = readerOverlayTextFieldColors(),
+            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).testTag(tag),
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.readerMenuSurface(),
+        ) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(optionTitle(option), fontWeight = if (option == selected) FontWeight.SemiBold else FontWeight.Normal) },
+                    onClick = {
+                        expanded = false
+                        onSelected(option)
+                    },
+                    modifier = Modifier.heightIn(min = ReaderDimens.compactRowMinHeight),
+                )
+            }
         }
     }
 }
@@ -1772,27 +2281,30 @@ private fun ProjectSearchEmptyState(
 private fun highlightedSearchExcerpt(
     text: String,
     query: String,
+    options: TextSearchOptions = TextSearchOptions(),
     background: ComposeColor,
     foreground: ComposeColor,
 ) = buildAnnotatedString {
-    val needle = query.trim()
-    if (needle.isEmpty()) {
+    if (query.isEmpty()) {
+        append(text)
+        return@buildAnnotatedString
+    }
+    val matches = runCatching {
+        TextSearchMatcher.compile(query, options).scan(text, maxStoredMatches = 100)
+    }.getOrNull()?.matches.orEmpty()
+    if (matches.isEmpty()) {
         append(text)
         return@buildAnnotatedString
     }
     var cursor = 0
-    while (cursor < text.length) {
-        val match = text.indexOf(needle, startIndex = cursor, ignoreCase = true)
-        if (match < 0) {
-            append(text.substring(cursor))
-            break
-        }
-        append(text.substring(cursor, match))
+    matches.forEach { match ->
+        if (match.start > cursor) append(text.substring(cursor, match.start))
         withStyle(SpanStyle(background = background, color = foreground, fontWeight = FontWeight.SemiBold)) {
-            append(text.substring(match, match + needle.length))
+            append(text.substring(match.start, match.endExclusive))
         }
-        cursor = match + needle.length
+        cursor = match.endExclusive
     }
+    if (cursor < text.length) append(text.substring(cursor))
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1807,21 +2319,35 @@ private fun ReaderScreen(
     onSwitchTab: (String) -> Unit,
     onCloseTab: (String) -> Unit,
     onOpenEntry: (SourceEntry) -> Unit,
-    onSearchInFile: (String, Boolean) -> Unit,
+    onSearchInFile: (String, Boolean, TextSearchOptions) -> Unit,
+    onClearFileSearch: () -> Unit,
+    onCancelFileSearch: () -> Unit,
     onGotoLine: (Int) -> Unit,
     onGotoHeading: (Int) -> Unit,
+    onReadingPositionChanged: (String, Int) -> Unit,
+    onCursorPositionChanged: (String, Int) -> Unit,
+    onToggleFileBookmark: () -> Unit,
+    onToggleLineBookmark: (Int) -> Unit,
+    onOpenReadingBookmark: (ReadingDocumentState) -> Unit,
+    onRemoveFileBookmark: (String) -> Unit,
+    onRemoveLineBookmark: (String, Int) -> Unit,
     onSetFontSize: (Float) -> Unit,
     onSetWordWrap: (Boolean) -> Unit,
     onLoadMore: () -> Unit,
+    onSetEncoding: (TextEncoding) -> Unit,
     onToggleTheme: () -> Unit,
+    onLocateCurrentFile: () -> Unit,
+    onCopyFullPath: (String) -> Unit,
 ) {
     val document = state.document ?: return
-    var searchVisible by remember(document.id) { mutableStateOf(false) }
-    var fileSearchText by remember(document.id) { mutableStateOf("") }
+    var searchVisible by remember(document.id) { mutableStateOf(state.fileSearchQuery.isNotBlank()) }
+    var fileSearchText by remember(document.id) { mutableStateOf(state.fileSearchQuery) }
     var showFileSwitcher by remember { mutableStateOf(false) }
     var showOutline by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showGotoLine by remember { mutableStateOf(false) }
+    var showEncoding by remember { mutableStateOf(false) }
+    var showBookmarks by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var pendingCloseTabId by remember { mutableStateOf<String?>(null) }
     val projectPath = state.projectEntries.firstOrNull { it.source.id == document.id }?.path
@@ -1859,10 +2385,13 @@ private fun ReaderScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                document.fileType.displayName,
+                                "${document.fileType.displayName} · ${document.encoding.displayName}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontFamily = FontFamily.Monospace,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.widthIn(max = 168.dp),
                             )
                             ReaderStatusBadge(documentStatus, emphasized = state.dirty || state.editable)
                             if (displayPath != null) {
@@ -1880,7 +2409,10 @@ private fun ReaderScreen(
                     HeaderIconButton(
                         Icons.Outlined.Search,
                         if (searchVisible) "关闭文件内搜索" else "文件内搜索",
-                    ) { searchVisible = !searchVisible }
+                    ) {
+                        searchVisible = !searchVisible
+                        if (!searchVisible) onClearFileSearch()
+                    }
                     Box {
                         HeaderIconButton(Icons.Outlined.MoreVert, "更多") { menuExpanded = true }
                         DropdownMenu(
@@ -1897,6 +2429,53 @@ private fun ReaderScreen(
                                     modifier = Modifier.heightIn(min = ReaderDimens.iconTouchTarget),
                                 )
                             }
+                            DropdownMenuItem(
+                                text = { Text(if (state.activeReadingState?.fileBookmarked == true) "取消文件书签" else "添加文件书签") },
+                                leadingIcon = {
+                                    Icon(
+                                        if (state.activeReadingState?.fileBookmarked == true) Icons.Outlined.BookmarkRemove else Icons.Outlined.BookmarkAdd,
+                                        contentDescription = null,
+                                    )
+                                },
+                                onClick = { menuExpanded = false; onToggleFileBookmark() },
+                                contentPadding = PaddingValues(horizontal = 12.dp),
+                                modifier = Modifier.heightIn(min = ReaderDimens.iconTouchTarget).testTag("toggle-file-bookmark"),
+                            )
+                            if (!state.markdownPreview) {
+                                val lineBookmarked = state.cursorLine in state.activeReadingState?.lineBookmarks.orEmpty()
+                                DropdownMenuItem(
+                                    text = { Text(if (lineBookmarked) "移除第 ${state.cursorLine} 行书签" else "添加第 ${state.cursorLine} 行书签") },
+                                    leadingIcon = {
+                                        Icon(if (lineBookmarked) Icons.Outlined.BookmarkRemove else Icons.Outlined.BookmarkAdd, contentDescription = null)
+                                    },
+                                    onClick = { menuExpanded = false; onToggleLineBookmark(state.cursorLine) },
+                                    contentPadding = PaddingValues(horizontal = 12.dp),
+                                    modifier = Modifier.heightIn(min = ReaderDimens.iconTouchTarget).testTag("toggle-line-bookmark"),
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("书签列表") },
+                                leadingIcon = { Icon(Icons.Outlined.Bookmarks, contentDescription = null) },
+                                onClick = { menuExpanded = false; showBookmarks = true },
+                                contentPadding = PaddingValues(horizontal = 12.dp),
+                                modifier = Modifier.heightIn(min = ReaderDimens.iconTouchTarget).testTag("open-bookmarks"),
+                            )
+                            if (projectPath != null) {
+                                DropdownMenuItem(
+                                    text = { Text("在项目中定位") },
+                                    leadingIcon = { Icon(Icons.Outlined.FolderOpen, contentDescription = null) },
+                                    onClick = { menuExpanded = false; onLocateCurrentFile() },
+                                    contentPadding = PaddingValues(horizontal = 12.dp),
+                                    modifier = Modifier.heightIn(min = ReaderDimens.iconTouchTarget).testTag("locate-current-file"),
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("复制完整路径") },
+                                leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null) },
+                                onClick = { menuExpanded = false; onCopyFullPath(document.location.stableId) },
+                                contentPadding = PaddingValues(horizontal = 12.dp),
+                                modifier = Modifier.heightIn(min = ReaderDimens.iconTouchTarget).testTag("copy-full-path"),
+                            )
                             if (document.fileType.markdown && state.markdownPreview && state.markdownHeadings.isNotEmpty()) {
                                 DropdownMenuItem(
                                     text = { Text("Markdown 目录") },
@@ -1906,6 +2485,13 @@ private fun ReaderScreen(
                                     modifier = Modifier.heightIn(min = ReaderDimens.iconTouchTarget),
                                 )
                             }
+                            DropdownMenuItem(
+                                text = { Text("文件编码：${document.encoding.displayName}") },
+                                leadingIcon = { Icon(Icons.Outlined.Description, contentDescription = null) },
+                                onClick = { menuExpanded = false; showEncoding = true },
+                                contentPadding = PaddingValues(horizontal = 12.dp),
+                                modifier = Modifier.heightIn(min = ReaderDimens.iconTouchTarget),
+                            )
                             DropdownMenuItem(
                                 text = { Text("阅读设置") },
                                 leadingIcon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
@@ -1947,10 +2533,30 @@ private fun ReaderScreen(
             if (searching) {
                 FileSearchBar(
                     text = fileSearchText,
-                    onTextChanged = { fileSearchText = it },
-                    onPrevious = { onSearchInFile(fileSearchText, false) },
-                    onNext = { onSearchInFile(fileSearchText, true) },
-                    onClose = { searchVisible = false },
+                    onTextChanged = { value ->
+                        fileSearchText = value
+                        if (value != state.fileSearchQuery &&
+                            (state.fileSearchQuery.isNotEmpty() || state.fileSearchInProgress)
+                        ) {
+                            onClearFileSearch()
+                        }
+                    },
+                    options = state.fileSearchOptions,
+                    matchCount = if (fileSearchText == state.fileSearchQuery) state.fileSearchMatchCount else 0,
+                    currentMatchIndex = if (fileSearchText == state.fileSearchQuery) state.fileSearchCurrentIndex else -1,
+                    storedMatchCount = if (fileSearchText == state.fileSearchQuery) state.fileSearchMatches.size else 0,
+                    searching = fileSearchText == state.fileSearchQuery && state.fileSearchInProgress,
+                    error = state.fileSearchError.takeIf { fileSearchText == state.fileSearchQuery },
+                    truncated = fileSearchText == state.fileSearchQuery && state.fileSearchCountTruncated,
+                    scannedLines = if (fileSearchText == state.fileSearchQuery) state.fileSearchScannedLines else 0,
+                    optionsEnabled = !state.markdownPreview,
+                    onPrevious = { onSearchInFile(fileSearchText, false, state.fileSearchOptions) },
+                    onNext = { onSearchInFile(fileSearchText, true, state.fileSearchOptions) },
+                    onCancel = onCancelFileSearch,
+                    onOptionsApplied = { options ->
+                        if (fileSearchText.isNotEmpty()) onSearchInFile(fileSearchText, true, options)
+                    },
+                    onClose = { searchVisible = false; onClearFileSearch() },
                 )
             } else {
                 ReaderActionBar(
@@ -1971,6 +2577,7 @@ private fun ReaderScreen(
             // 跨文件标签切换时继续保留 Markdown WebView，避免从源码文件回到 Markdown 时白屏重建。
             val markdownSurfaceVisible = document.fileType.markdown && state.markdownPreview
             MarkdownPreview(
+                documentId = document.id,
                 markdownText = state.draftText,
                 darkTheme = state.theme.isDark,
                 fontSizeSp = state.settings.fontSizeSp,
@@ -1989,6 +2596,8 @@ private fun ReaderScreen(
                 wordWrap = state.settings.wordWrap,
                 command = state.readerCommand,
                 onTextChanged = onTextChanged,
+                onReadingPositionChanged = onReadingPositionChanged,
+                onCursorPositionChanged = onCursorPositionChanged,
                 modifier = if (document.fileType.markdown) {
                     readerSurfaceLayer(!state.markdownPreview)
                 } else {
@@ -2032,6 +2641,32 @@ private fun ReaderScreen(
         GotoLineDialog(
             onDismiss = { showGotoLine = false },
             onGoto = { showGotoLine = false; onGotoLine(it) },
+        )
+    }
+    if (showEncoding) {
+        FileEncodingSheet(
+            current = document.encoding,
+            onDismiss = { showEncoding = false },
+            onSelected = {
+                showEncoding = false
+                onSetEncoding(it)
+            },
+        )
+    }
+    if (showBookmarks) {
+        BookmarksSheet(
+            state = state,
+            onDismiss = { showBookmarks = false },
+            onOpenFile = {
+                showBookmarks = false
+                onOpenReadingBookmark(it)
+            },
+            onGotoLine = {
+                showBookmarks = false
+                onGotoLine(it)
+            },
+            onRemoveFile = onRemoveFileBookmark,
+            onRemoveLine = { line -> onRemoveLineBookmark(document.id, line) },
         )
     }
     pendingCloseTabId?.let { tabId ->
@@ -2198,62 +2833,204 @@ internal fun ReaderTabs(state: ReaderUiState, onSwitch: (String) -> Unit, onClos
 private fun FileSearchBar(
     text: String,
     onTextChanged: (String) -> Unit,
+    options: TextSearchOptions,
+    matchCount: Int,
+    currentMatchIndex: Int,
+    storedMatchCount: Int,
+    searching: Boolean,
+    error: String?,
+    truncated: Boolean,
+    scannedLines: Int,
+    optionsEnabled: Boolean,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onCancel: () -> Unit,
+    onOptionsApplied: (TextSearchOptions) -> Unit,
     onClose: () -> Unit,
 ) {
     val focusRequester = remember { FocusRequester() }
+    var showOptions by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-        Row(
-            modifier = Modifier.fillMaxWidth().height(48.dp).padding(start = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            BasicTextField(
-                value = text,
-                onValueChange = onTextChanged,
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { if (text.isNotBlank()) onNext() }),
-                decorationBox = { innerTextField ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.small)
-                            .background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.small)
-                            .padding(horizontal = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            Icons.Outlined.FindInPage,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
-                        )
-                        Box(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
-                            if (text.isBlank()) {
-                                Text(
-                                    "文件内查找",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-                                )
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().height(48.dp).padding(start = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                BasicTextField(
+                    value = text,
+                    onValueChange = onTextChanged,
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { if (text.isNotBlank() && !searching) onNext() }),
+                    decorationBox = { innerTextField ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.small)
+                                .background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.small)
+                                .padding(horizontal = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Outlined.FindInPage,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+                            )
+                            Box(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
+                                if (text.isBlank()) {
+                                    Text(
+                                        "文件内查找",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+                                    )
+                                }
+                                innerTextField()
                             }
-                            innerTextField()
+                        }
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(38.dp)
+                        .focusRequester(focusRequester)
+                        .testTag("file-search-input"),
+                )
+                if (!searching && error == null && matchCount > 0) {
+                    Text(
+                        "${currentMatchIndex + 1}/$matchCount",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                    )
+                } else if (!searching && error == null && text.isNotBlank() && matchCount == 0) {
+                    Text(
+                        "0",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                    )
+                }
+                IconButton(
+                    onClick = { showOptions = true },
+                    enabled = optionsEnabled && !searching,
+                ) {
+                    Icon(
+                        Icons.Outlined.FilterAlt,
+                        contentDescription = if (optionsEnabled) "文件搜索选项" else "预览模式不支持高级搜索选项",
+                        tint = if (options.activeCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(onClick = onPrevious, enabled = text.isNotBlank() && !searching) {
+                    Icon(Icons.AutoMirrored.Outlined.NavigateBefore, contentDescription = "上一个")
+                }
+                IconButton(onClick = onNext, enabled = text.isNotBlank() && !searching) {
+                    Icon(Icons.AutoMirrored.Outlined.NavigateNext, contentDescription = "下一个")
+                }
+                IconButton(onClick = onClose) {
+                    Icon(Icons.Outlined.Close, contentDescription = "关闭搜索")
+                }
+            }
+            if (searching || error != null || truncated) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 8.dp, bottom = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (searching) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp).testTag("file-search-progress"),
+                            strokeWidth = 2.dp,
+                        )
+                    }
+                    Text(
+                        text = when {
+                            error != null -> "搜索失败：$error"
+                            searching && storedMatchCount > 0 -> "正在加载第 ${currentMatchIndex + 1} 个命中位置"
+                            searching -> "正在扫描完整文件 · 已扫描 $scannedLines 行 · 已找到 $matchCount 处"
+                            else -> "共命中 $matchCount 处，仅保留前 $storedMatchCount 个可跳转位置"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = if (searching) 7.dp else 0.dp)
+                            .testTag(
+                                when {
+                                    error != null -> "file-search-error"
+                                    searching -> "file-search-progress-text"
+                                    else -> "file-search-truncated"
+                                },
+                            ),
+                    )
+                    if (searching) {
+                        TextButton(onClick = onCancel, modifier = Modifier.testTag("cancel-file-search")) {
+                            Text("取消")
                         }
                     }
-                },
-                modifier = Modifier.weight(1f).height(38.dp).focusRequester(focusRequester),
+                }
+            }
+        }
+    }
+    if (showOptions) {
+        TextSearchOptionsSheet(
+            options = options,
+            onDismiss = { showOptions = false },
+            onApply = {
+                showOptions = false
+                onOptionsApplied(it)
+            },
+        )
+    }
+}
+
+@Composable
+private fun TextSearchOptionsSheet(
+    options: TextSearchOptions,
+    onDismiss: () -> Unit,
+    onApply: (TextSearchOptions) -> Unit,
+) {
+    var draft by remember(options) { mutableStateOf(options) }
+    ReaderBottomSheet(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.testTag("file-search-options-sheet"),
+    ) {
+        ReaderSheetHeader(title = "文件搜索选项", icon = Icons.Outlined.FilterAlt)
+        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+            SearchToggleRow(
+                title = "区分大小写",
+                summary = "只匹配大小写完全一致的文本",
+                checked = draft.caseSensitive,
+                onCheckedChange = { draft = draft.copy(caseSensitive = it) },
+                tag = "file-search-case-sensitive",
             )
-            IconButton(onClick = onPrevious, enabled = text.isNotBlank()) {
-                Icon(Icons.AutoMirrored.Outlined.NavigateBefore, contentDescription = "上一个")
-            }
-            IconButton(onClick = onNext, enabled = text.isNotBlank()) {
-                Icon(Icons.AutoMirrored.Outlined.NavigateNext, contentDescription = "下一个")
-            }
-            IconButton(onClick = onClose) {
-                Icon(Icons.Outlined.Close, contentDescription = "关闭搜索")
+            SearchToggleRow(
+                title = "整词匹配",
+                summary = "忽略嵌在其他标识符中的部分文本",
+                checked = draft.wholeWord,
+                onCheckedChange = { draft = draft.copy(wholeWord = it) },
+                tag = "file-search-whole-word",
+            )
+            SearchToggleRow(
+                title = "正则表达式",
+                summary = "使用正则表达式匹配当前源码",
+                checked = draft.regularExpression,
+                onCheckedChange = { draft = draft.copy(regularExpression = it) },
+                tag = "file-search-regular-expression",
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                TextButton(onClick = { draft = TextSearchOptions() }, modifier = Modifier.weight(1f)) { Text("恢复默认") }
+                Button(onClick = { onApply(draft) }, modifier = Modifier.weight(1f).testTag("apply-file-search-options")) {
+                    Text("应用搜索选项")
+                }
             }
         }
     }
@@ -2459,6 +3236,148 @@ private fun MarkdownOutlineSheet(
     }
 }
 
+@Composable
+private fun BookmarksSheet(
+    state: ReaderUiState,
+    onDismiss: () -> Unit,
+    onOpenFile: (ReadingDocumentState) -> Unit,
+    onGotoLine: (Int) -> Unit,
+    onRemoveFile: (String) -> Unit,
+    onRemoveLine: (Int) -> Unit,
+) {
+    val fileBookmarks = state.fileBookmarks
+    val lineBookmarks = state.activeReadingState?.lineBookmarks.orEmpty()
+    val totalBookmarks = fileBookmarks.size + lineBookmarks.size
+    ReaderBottomSheet(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.testTag("bookmarks-sheet"),
+    ) {
+        ReaderSheetHeader(title = "书签", icon = Icons.Outlined.Bookmarks) {
+            Text(
+                "$totalBookmarks",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontFamily = FontFamily.Monospace,
+            )
+        }
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().heightIn(max = 500.dp),
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            if (totalBookmarks == 0) {
+                item {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 36.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(Icons.Outlined.Bookmarks, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "还没有书签",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 10.dp),
+                        )
+                    }
+                }
+            }
+            if (fileBookmarks.isNotEmpty()) {
+                item { BookmarkSectionTitle("文件书签") }
+                items(fileBookmarks, key = { "file-${it.documentId}" }) { bookmark ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = ReaderDimens.compactRowMinHeight),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onOpenFile(bookmark) }
+                                .testTag("file-bookmark-${bookmark.documentId}")
+                                .semantics(mergeDescendants = true) {
+                                    contentDescription = "打开文件书签 ${bookmark.documentName}"
+                                }
+                                .padding(horizontal = 8.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            FileGlyph(isDirectory = false, fileType = FileType.detect(bookmark.documentName))
+                            Column(modifier = Modifier.weight(1f).padding(start = 10.dp)) {
+                                Text(
+                                    bookmark.documentName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    "上次阅读到第 ${bookmark.lastViewedLine} 行",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+                        IconButton(
+                            onClick = { onRemoveFile(bookmark.documentId) },
+                            modifier = Modifier.testTag("remove-file-bookmark-${bookmark.documentId}"),
+                        ) {
+                            Icon(Icons.Outlined.BookmarkRemove, contentDescription = "移除 ${bookmark.documentName} 文件书签")
+                        }
+                    }
+                }
+            }
+            if (lineBookmarks.isNotEmpty()) {
+                item { BookmarkSectionTitle("当前文件行书签") }
+                items(lineBookmarks, key = { "line-$it" }) { line ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = ReaderDimens.compactRowMinHeight),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onGotoLine(line) }
+                                .testTag("line-bookmark-$line")
+                                .semantics(mergeDescendants = true) {
+                                    contentDescription = "跳转到第 $line 行书签"
+                                }
+                                .padding(horizontal = 10.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Outlined.UnfoldMore, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Text(
+                                "第 $line 行",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.padding(start = 12.dp),
+                            )
+                        }
+                        IconButton(
+                            onClick = { onRemoveLine(line) },
+                            modifier = Modifier.testTag("remove-line-bookmark-$line"),
+                        ) {
+                            Icon(Icons.Outlined.BookmarkRemove, contentDescription = "移除第 $line 行书签")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BookmarkSectionTitle(title: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 16.dp, bottom = 6.dp),
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ReaderSettingsSheet(
@@ -2496,6 +3415,67 @@ private fun ReaderSettingsSheet(
                 Switch(checked = settings.wordWrap, onCheckedChange = onSetWordWrap)
             }
             Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun FileEncodingSheet(
+    current: TextEncoding,
+    onDismiss: () -> Unit,
+    onSelected: (TextEncoding) -> Unit,
+) {
+    ReaderBottomSheet(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.testTag("file-encoding-sheet"),
+    ) {
+        ReaderSheetHeader(title = "文件编码", icon = Icons.Outlined.Description) {
+            Text(
+                current.displayName,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontFamily = FontFamily.Monospace,
+            )
+        }
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().heightIn(max = 460.dp),
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp),
+        ) {
+            items(TextEncoding.entries, key = TextEncoding::name) { encoding ->
+                Surface(
+                    onClick = { onSelected(encoding) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = ReaderDimens.compactRowMinHeight)
+                        .testTag("encoding-${encoding.name}"),
+                    color = if (encoding == current) {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    } else {
+                        ComposeColor.Transparent
+                    },
+                    shape = MaterialTheme.shapes.small,
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            encoding.displayName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = if (encoding == current) FontWeight.SemiBold else FontWeight.Normal,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (encoding == current) {
+                            Text(
+                                "当前",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

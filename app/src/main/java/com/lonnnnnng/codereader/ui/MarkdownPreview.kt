@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 
 private class MarkdownDocumentBinding {
+    var documentId: String? = null
     var markdownText: String? = null
     var darkTheme: Boolean? = null
     var fontSizeSp: Float? = null
@@ -52,6 +53,7 @@ private class MarkdownBridge(context: Context) {
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun MarkdownPreview(
+    documentId: String,
     markdownText: String,
     darkTheme: Boolean,
     fontSizeSp: Float,
@@ -93,7 +95,13 @@ fun MarkdownPreview(
             }
         },
         update = { webView ->
-            val contentChanged = binding.markdownText != markdownText ||
+            val documentChanged = binding.documentId != documentId
+            if (documentChanged) {
+                binding.documentId = documentId
+                binding.commandId = null
+                binding.searchQuery = null
+            }
+            val contentChanged = documentChanged || binding.markdownText != markdownText ||
                 binding.darkTheme != darkTheme || binding.fontSizeSp != fontSizeSp ||
                 binding.backgroundColorArgb != backgroundColorArgb
             // 隐藏预览只保留 WebView 实例，不重复执行完整 HTML 渲染；重新显示时再消费最新正文。
@@ -121,10 +129,14 @@ fun MarkdownPreview(
                 binding.backgroundColorArgb = backgroundColorArgb
                 binding.searchQuery = null
             }
-            if (active && command != null && binding.commandId != command.id) {
+            val commandTargetsDocument = command?.targetDocumentId?.let { it == documentId } ?: true
+            if (active && command != null && commandTargetsDocument && binding.commandId != command.id) {
                 val delay = if (contentChanged) 500L else 0L
-                webView.postDelayed({ handleMarkdownCommand(webView, binding, command) }, delay)
                 binding.commandId = command.id
+                webView.postDelayed({
+                    if (!isCurrentMarkdownCommand(binding, command, documentId)) return@postDelayed
+                    handleMarkdownCommand(webView, binding, command, documentId)
+                }, delay)
             }
         },
         onRelease = { webView ->
@@ -136,24 +148,45 @@ fun MarkdownPreview(
     )
 }
 
-private fun handleMarkdownCommand(webView: WebView, binding: MarkdownDocumentBinding, command: ReaderCommand) {
+private fun handleMarkdownCommand(
+    webView: WebView,
+    binding: MarkdownDocumentBinding,
+    command: ReaderCommand,
+    documentId: String,
+) {
     when (command.type) {
         ReaderCommandType.SEARCH_FORWARD,
         ReaderCommandType.SEARCH_BACKWARD -> {
             if (binding.searchQuery != command.query) {
                 webView.findAllAsync(command.query)
                 binding.searchQuery = command.query
-                webView.postDelayed({ webView.findNext(command.type == ReaderCommandType.SEARCH_FORWARD) }, 150)
+                webView.postDelayed({
+                    if (!isCurrentMarkdownCommand(binding, command, documentId)) return@postDelayed
+                    webView.findNext(command.type == ReaderCommandType.SEARCH_FORWARD)
+                }, 150)
             } else {
                 webView.findNext(command.type == ReaderCommandType.SEARCH_FORWARD)
             }
         }
+        ReaderCommandType.CLEAR_SEARCH -> {
+            webView.clearMatches()
+            binding.searchQuery = null
+        }
         ReaderCommandType.MARKDOWN_HEADING -> {
             webView.evaluateJavascript("scrollToHeading(${command.headingIndex})", null)
         }
-        ReaderCommandType.GOTO_LINE -> Unit
+        ReaderCommandType.GOTO_LINE,
+        ReaderCommandType.GOTO_SEARCH_MATCH -> Unit
     }
 }
+
+private fun isCurrentMarkdownCommand(
+    binding: MarkdownDocumentBinding,
+    command: ReaderCommand,
+    documentId: String,
+): Boolean = binding.documentId == documentId &&
+    binding.commandId == command.id &&
+    (command.targetDocumentId == null || command.targetDocumentId == documentId)
 
 private fun openExternalLink(webView: WebView, uri: Uri): Boolean {
     if (uri.scheme !in setOf("http", "https", "mailto")) return true

@@ -20,7 +20,10 @@ import com.lonnnnnng.codereader.model.AppColorPalette
 import com.lonnnnnng.codereader.model.EntryLocation
 import com.lonnnnnng.codereader.model.FileType
 import com.lonnnnnng.codereader.model.OpenDocument
+import com.lonnnnnng.codereader.model.ProjectTreeEntry
 import com.lonnnnnng.codereader.model.ReaderTheme
+import com.lonnnnnng.codereader.model.SourceEntry
+import com.lonnnnnng.codereader.domain.ProjectSearchOptions
 import com.lonnnnnng.codereader.update.AppRelease
 import com.lonnnnnng.codereader.update.ReleaseApkAsset
 import org.junit.Assert.assertTrue
@@ -151,6 +154,55 @@ class DialogLayoutInstrumentedTest {
 
         composeRule.onNodeWithContentDescription("获取最新代码").assertIsDisplayed().performClick()
         composeRule.runOnIdle { assertTrue("Git 项目标题栏必须触发更新动作", updateRequested) }
+    }
+
+    @Test
+    fun projectSearchOptionsUseProductSheet() {
+        var appliedOptions: ProjectSearchOptions? = null
+        val source = SourceEntry(
+            name = "UserService.kt",
+            isDirectory = false,
+            size = 128,
+            canWrite = true,
+            location = EntryLocation.Local(File("/tmp/src/main/UserService.kt")),
+        )
+        composeRule.setContent {
+            MaterialTheme(
+                colorScheme = appColorScheme(ReaderTheme.HIGH_CONTRAST_LIGHT, AppColorPalette.EMERALD),
+                typography = ReaderTypography,
+                shapes = ReaderShapes,
+            ) {
+                BrowserScreen(
+                    state = ReaderUiState(
+                        screen = AppScreen.BROWSER,
+                        browserTitle = "demo",
+                        projectEntries = listOf(ProjectTreeEntry(source, "src/main/UserService.kt", null, 0)),
+                    ),
+                    onBack = {},
+                    onEntry = {},
+                    onSearch = {},
+                    onSearchOptionsChanged = { appliedOptions = it },
+                    onSearchResult = {},
+                    onUpdateGit = {},
+                    onToggleTheme = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("项目全局搜索").performClick()
+        composeRule.onNodeWithContentDescription("项目搜索选项").performClick()
+        composeRule.onNodeWithTag("project-search-options-sheet").assertIsDisplayed()
+        composeRule.onNodeWithText("区分大小写").assertIsDisplayed()
+        composeRule.onNodeWithText("整词匹配").assertIsDisplayed()
+        composeRule.onNodeWithText("正则表达式").assertIsDisplayed()
+        composeRule.onNodeWithText("文件名或路径").assertIsDisplayed()
+        composeRule.onNodeWithTag("search-case-sensitive").performClick()
+        composeRule.onNodeWithTag("search-path-filter").performTextInput("service")
+        composeRule.onNodeWithTag("apply-project-search-options").performClick()
+        composeRule.runOnIdle {
+            assertTrue(appliedOptions?.text?.caseSensitive == true)
+            assertTrue(appliedOptions?.pathFilter == "service")
+        }
     }
 
     @Test

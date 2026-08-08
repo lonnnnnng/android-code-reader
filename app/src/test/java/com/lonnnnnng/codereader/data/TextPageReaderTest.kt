@@ -17,4 +17,18 @@ class TextPageReaderTest {
         assertEquals(source, first.text + second.text + third.text)
         assertEquals(false, third.hasMore)
     }
+
+    @Test
+    fun `同一字符流连续读取不会重新跳过前文`() {
+        val reader = StringReader("abcdefghij")
+
+        val first = TextPageReader.readNext(reader, pageCharacters = 3)
+        val second = TextPageReader.readNext(reader, pageCharacters = 3)
+        val third = TextPageReader.readNext(reader, pageCharacters = 20)
+
+        assertEquals("abc", first.text)
+        assertEquals("def", second.text)
+        assertEquals("ghij", third.text)
+        assertEquals(false, third.hasMore)
+    }
 }

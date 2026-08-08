@@ -1,5 +1,6 @@
 package com.lonnnnnng.codereader
 
+import android.content.ClipboardManager
 import android.view.View
 import android.view.ViewGroup
 import androidx.compose.ui.test.assertIsDisplayed
@@ -36,7 +37,11 @@ class SampleProjectUiTest {
         }
         composeRule.onNodeWithTag("project-list").performScrollToNode(hasText("Program.cs"))
         composeRule.onNodeWithText("Program.cs").performClick()
-        composeRule.onNodeWithText("C#").assertIsDisplayed()
+        // 文件读取在 IO 协程中完成，等待阅读页真正发布后再检查标题，避免把调度时序误判为功能失败。 @author long
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithText("C#", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("C#", substring = true).assertIsDisplayed()
         composeRule.onNodeWithText("只读").assertIsDisplayed()
         assertCompactHeader("reader-header")
     }
@@ -65,6 +70,113 @@ class SampleProjectUiTest {
         }
         assertNotNull("没有找到 Sora 编辑器", editor)
         assertTrue("第 120 行没有进入可见区域", editor!!.firstVisibleLine <= 119 && editor!!.lastVisibleLine >= 119)
+    }
+
+    @Test
+    fun fileSearchJumpsToExactLineAndColumn() {
+        composeRule.onNodeWithText("内置测试项目").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithTag("project-list").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("project-list").performScrollToNode(hasText("Program.cs"))
+        composeRule.onNodeWithText("Program.cs").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithText("C#", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeRule.onNodeWithContentDescription("文件内搜索").performClick()
+        composeRule.onNodeWithTag("file-search-input").performTextInput("Console")
+        composeRule.onNodeWithTag("file-search-input").performImeAction()
+
+        var editor: CodeEditor? = null
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                editor = findCodeEditor(composeRule.activity.findViewById(android.R.id.content))
+            }
+            editor?.cursor?.leftLine == 6 && editor?.cursor?.leftColumn == 33
+        }
+        assertEquals("搜索应定位到 Main 方法所在行", 6, editor?.cursor?.leftLine)
+        assertEquals("搜索应定位到 Console 的真实列位置", 33, editor?.cursor?.leftColumn)
+    }
+
+    @Test
+    fun soraSelectionCanCreateAndOpenLineBookmark() {
+        composeRule.onNodeWithText("内置测试项目").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithTag("project-list").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("project-list").performScrollToNode(hasText("Program.cs"))
+        composeRule.onNodeWithText("Program.cs").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithText("C#", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+
+        var editor: CodeEditor? = null
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                editor = findCodeEditor(composeRule.activity.findViewById(android.R.id.content))
+                editor?.setSelection(4, 0)
+            }
+            editor != null
+        }
+        composeRule.onNodeWithContentDescription("更多").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText("添加第 5 行书签").fetchSemanticsNodes().isNotEmpty() ||
+                composeRule.onAllNodesWithText("移除第 5 行书签").fetchSemanticsNodes().isNotEmpty()
+        }
+        if (composeRule.onAllNodesWithText("移除第 5 行书签").fetchSemanticsNodes().isNotEmpty()) {
+            composeRule.onNodeWithText("移除第 5 行书签").performClick()
+            composeRule.onNodeWithContentDescription("更多").performClick()
+        }
+        composeRule.onNodeWithText("添加第 5 行书签").performClick()
+        composeRule.onNodeWithContentDescription("更多").performClick()
+        composeRule.onNodeWithText("书签列表").performClick()
+
+        composeRule.onNodeWithText("当前文件行书签").assertIsDisplayed()
+        composeRule.onNodeWithTag("line-bookmark-5").assertIsDisplayed().performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { editor?.cursor?.leftLine == 4 }
+        assertEquals(4, editor?.cursor?.leftLine)
+
+        composeRule.onNodeWithContentDescription("更多").performClick()
+        // 菜单文字会被 DropdownMenuItem 合并语义；稳定标签才是可持续点击的产品测试边界。 @author long
+        composeRule.onNodeWithTag("toggle-line-bookmark").performClick()
+        composeRule.onNodeWithContentDescription("更多").performClick()
+        composeRule.onNodeWithText("添加第 5 行书签").assertIsDisplayed()
+        if (composeRule.onAllNodesWithText("取消文件书签").fetchSemanticsNodes().isNotEmpty()) {
+            composeRule.onNodeWithTag("toggle-file-bookmark").performClick()
+            composeRule.onNodeWithContentDescription("更多").performClick()
+        }
+        composeRule.onNodeWithTag("toggle-file-bookmark").performClick()
+        composeRule.onNodeWithContentDescription("更多").performClick()
+        composeRule.onNodeWithText("书签列表").performClick()
+        composeRule.onNodeWithText("文件书签").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("移除 Program.cs 文件书签").performClick()
+        composeRule.onNodeWithText("还没有书签").assertIsDisplayed()
+    }
+
+    @Test
+    fun readerCanCopyFullPathAndLocateCurrentFileInProject() {
+        composeRule.onNodeWithText("内置测试项目").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithTag("project-list").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("project-list").performScrollToNode(hasText("Program.cs"))
+        composeRule.onNodeWithText("Program.cs").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithText("C#", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeRule.onNodeWithContentDescription("更多").performClick()
+        composeRule.onNodeWithText("复制完整路径").performClick()
+        val clipboard = composeRule.activity.getSystemService(ClipboardManager::class.java)
+        assertTrue(clipboard.primaryClip?.getItemAt(0)?.text?.contains("Program.cs") == true)
+
+        composeRule.onNodeWithContentDescription("更多").performClick()
+        composeRule.onNodeWithText("在项目中定位").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("project-list").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("Program.cs").assertIsDisplayed()
     }
 
     private fun findCodeEditor(view: View): CodeEditor? {

@@ -29,4 +29,16 @@ class ProjectIndexTest {
 
         assertEquals(listOf(ProjectSearchHit("src/main/Main.java", 2, "return service.findUser();")), results)
     }
+
+    @Test
+    fun `分段搜索使用调用方行号并保留跨页行`() {
+        val results = ProjectIndex.searchLines(
+            path = "large.log",
+            lines = sequenceOf("prefix", "  target-value  ", "tail"),
+            firstLine = 41,
+            query = "target",
+        )
+
+        assertEquals(listOf(ProjectSearchHit("large.log", 42, "target-value")), results)
+    }
 }
