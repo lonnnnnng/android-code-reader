@@ -1,54 +1,259 @@
-# 灵阅
+<div align="center">
 
-原生 Android 源码与 Markdown 阅读器，默认只读，可按文件切换编辑并保存。
+# 灵阅 · LingYue
 
-## 当前能力
+### 把项目带在手机里，打开即读。
 
-- `ACTION_VIEW`、`ACTION_EDIT`、`ACTION_SEND` 外部文件入口。
-- SAF 单文件和目录/项目浏览。
-- ZIP 安全解压和项目浏览。
-- 公共 HTTPS Git 仓库浅克隆；5 行地址输入框完整展示长链接，克隆过程持续显示阶段、百分比和取消入口，本地目录默认使用仓库名称。
-- 已克隆仓库可在项目标题栏获取最新代码；更新只接受安全快进，不自动合并或覆盖手机端保存的本地修改。
-- 不设条目数量上限的可折叠项目树，目录、ZIP、Git 和内置 Markdown 示例使用同一套完整项目索引。
-- 文件内搜索、项目全局搜索和快速文件切换；全局搜索支持键盘提交、加载/失败/空状态、快速清除和命中高亮，结果按文件名、父路径、行号和摘要分层展示。
-- 项目全局搜索按文件编码流式扫描全文，支持超过 2 MB 源码的后半段命中；单文件最多展示 8 个命中，全局最多 200 条。
-- 文件内搜索对大文件流式扫描到文件末尾，显示扫描行数和命中数，支持取消旧任务、精确行列跳转以及切换标签后恢复各自的搜索高亮。
-- 项目索引在后台显示已扫描文件、目录和耗时，支持取消、失败重试和项目标题栏刷新；当前 ViewModel 生命周期内复用目录索引缓存，本地目录通过结构指纹检测变化，SAF 显式刷新会完整重建。
-- 首页“最近打开”菜单集中管理最多 6 个可恢复项目，有记录时直接展示最近项目名称。
-- 多文件标签页；每个标签页独立保留草稿、编辑状态和 Markdown 预览状态。
-- 源码阅读位置按文档稳定 ID 持久化；切换标签、重新打开项目和应用重启后可恢复最近文件与行号。
-- 阅读页支持文件书签和行书签，可在统一书签列表中查看、跳转和移除。
-- 首页、设置、项目和阅读页统一使用 56dp 紧凑标题栏，同时保留 48dp 图标触控区域；首页常用文件/项目入口与低频 ZIP/Git 导入形成 76dp/64dp 层级，示例采用无填充列表减少卡片堆叠。
-- 项目目录限制深层视觉缩进并为完整路径、目录展开状态补充无障碍语义；来源入口、设置分类和更新入口复用统一的实体色图标徽标，阅读页采用文件名/类型/状态两级标题、编辑器式活动标签和 32dp 可见底板。
-- Sora Editor + TextMate 语法高亮。
-- 自动识别 UTF-8、UTF-8 BOM、UTF-16、GB18030/GBK、Big5 和 Latin-1；阅读页显示当前编码并支持手动重新选择，保存时沿用当前编码和 BOM。
-- 二进制文件进入独立识别页，展示名称、MIME、大小和来源；应用管理的本地文件通过只读临时 URI 安全交给外部应用打开。
-- 文件不存在、权限失效和读取失败进入可恢复错误页，返回时保留原页面状态，并可在来源恢复后直接重试。
-- 首页提供两级设置页；一级按“阅读与显示 / 应用外观 / 关于与更新”分类，二级集中配置具体选项。系统侧边返回手势会逐级回退，首页退出前显示二次确认。11-24 sp 字号、阅读背景、整体强调色和明暗模式均可实时预览并持久化。
-- 设置页支持从 GitHub Releases 在线检查更新；弹框按更新说明、下载进度、操作按钮的顺序展示，并在完成 SHA-256、文件大小、应用 ID、版本号和签名证书校验后交给系统安装器。
-- 应用、源码和 Markdown 统一使用手机系统字体；高对比亮色和 Darcula 暗色代码主题支持运行时切换，源码与 Markdown 共用字号和阅读背景设置。
-- 跳转到行和源码自动换行。
-- 大文件按连续字符游标追加分页；跳转到未加载行时会自动加载，切换标签和追加内容后保持源码滚动位置。
-- Markdown 源码/预览切换，支持常用语法、表格、任务列表和脚注。
-- Markdown 代码块语法高亮、KaTeX 数学公式和 Mermaid 流程图，全部使用 APK 内置资源离线渲染。
-- Markdown 目录跳转和代码块一键复制。
-- 大文件阈值和整文件读取上限根据设备内存预算动态决定；超过阈值自动进入只读分段模式，每次追加约 256K 字符，避免一次性加载超大文本。
-- Debug 构建包含 78 个语法覆盖文件；Release APK 不携带 QA 工具和多语言测试工程，只保留一个 Markdown 功能示例。
-- 覆盖 Swift、Objective-C、Scala、Dart、Terraform/HCL、Protobuf、GraphQL、Prisma、CMake、Razor、Svelte、Astro、MDX、Nginx、Go Module、ProGuard 等工程文件。
-- Pixel_9 模拟器基线已通过 46 项 instrumentation 和 78/78 语法 token 验证；旧版本的真机验证记录仅作为历史资料，不代表当前项目的验证范围。
+面向开发者的 Android 原生源码与 Markdown 阅读器，
+让目录、搜索、代码高亮和文档渲染在小屏幕上依然清晰顺手。
 
-完整验证结果见 [Android 验证报告](docs/模拟器验证报告.md)。
+<p>
+  <a href="https://github.com/lonnnnnng/android-code-reader/releases/latest"><img src="https://img.shields.io/github/v/release/lonnnnnng/android-code-reader?display_name=tag&style=flat-square&label=Release" alt="Latest Release"></a>
+  <a href="https://github.com/lonnnnnng/android-code-reader/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-2ea44f?style=flat-square" alt="License"></a>
+  <img src="https://img.shields.io/badge/Android-API%2024%2B-3ddc84?style=flat-square&logo=android&logoColor=white" alt="Android API 24+"><br>
+  <img src="https://img.shields.io/badge/Kotlin-2.3.21-7f52ff?style=flat-square&logo=kotlin&logoColor=white" alt="Kotlin 2.3.21">
+  <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285f4?style=flat-square&logo=jetpackcompose&logoColor=white" alt="Jetpack Compose">
+  <img src="https://img.shields.io/badge/验证-Pixel__9%20模拟器-0f766e?style=flat-square" alt="Pixel 9 emulator verified">
+</p>
 
-产品规划见 [灵阅产品路线图](docs/产品路线图.md)。
+<p>
+  <a href="https://github.com/lonnnnnng/android-code-reader/releases/latest">下载最新 APK</a>
+  ·
+  <a href="docs/产品路线图.md">查看产品路线图</a>
+  ·
+  <a href="https://github.com/lonnnnnng/android-code-reader/issues">提交 Issue</a>
+</p>
 
-## 构建
+</div>
+
+<br>
+
+> 灵阅的定位不是把完整 IDE 搬到手机上，而是把“打开项目 → 找到文件 → 读懂代码 → 继续上次阅读”这条路径做得可靠、快速、舒服。
+
+## 一眼看懂
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/home.png" width="220" alt="灵阅首页"><br><sub>首页与来源入口</sub></td>
+    <td align="center"><img src="docs/screenshots/reader-layout-dark.png" width="220" alt="Darcula 源码阅读"><br><sub>Darcula 源码阅读与多标签</sub></td>
+    <td align="center"><img src="docs/screenshots/markdown-preview.png" width="220" alt="Markdown 预览"><br><sub>Markdown 离线预览</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/markdown-math-mermaid.png" width="220" alt="KaTeX 与 Mermaid"><br><sub>数学公式与 Mermaid</sub></td>
+    <td align="center"><img src="docs/screenshots/vue-highlight.png" width="220" alt="Vue 语法高亮"><br><sub>主流语言语法高亮</sub></td>
+    <td align="center"><img src="docs/screenshots/reader-layout-landscape.png" width="330" alt="横屏阅读"><br><sub>横屏阅读布局</sub></td>
+  </tr>
+</table>
+
+## 目录
+
+- [产品亮点](#产品亮点)
+- [快速体验](#快速体验)
+- [能力一览](#能力一览)
+- [支持的文件类型](#支持的文件类型)
+- [技术架构](#技术架构)
+- [构建与验证](#构建与验证)
+- [安全与隐私](#安全与隐私)
+- [路线图](#路线图)
+- [许可证与第三方声明](#许可证与第三方声明)
+
+## 产品亮点
+
+### 多种来源，一个阅读内核
+
+本地文件、系统分享、SAF 文件/目录、ZIP 项目、公开 HTTPS Git 仓库和内置示例，都会进入统一的项目与文档模型。来源不同，阅读、搜索、标签页和书签的体验保持一致。
+
+### 为“阅读代码”而设计
+
+- 可折叠项目树，完整索引目录与文件，不再截断前 5000 个条目。
+- 文件内搜索、项目全局搜索、文件名/路径筛选、命中高亮和精确行列跳转。
+- 多文件标签页；每个标签页独立保留草稿、编辑状态、Markdown 模式和阅读位置。
+- 文件书签、行书签、跳转到行、自动换行和完整路径复制。
+- 大文件按设备内存预算进入分段只读模式，搜索可以扫描到尚未加载的后半段。
+
+### Markdown 不只是纯文本
+
+Markdown 源码与预览一键切换，预览内核完全使用 APK 内置资源，支持：
+
+| 常用语法 | 高级内容 | 阅读辅助 |
+| --- | --- | --- |
+| 标题、引用、列表、表格、任务列表、脚注 | 代码块高亮、KaTeX 数学公式、Mermaid 流程图 | 目录跳转、代码块复制、明暗主题、离线渲染 |
+
+### 可靠地打开各种工程文件
+
+- 自动识别 UTF-8、UTF-8 BOM、UTF-16、GB18030/GBK、Big5 和 Latin-1，并显示当前编码。
+- 保存时沿用当前编码和 BOM，二进制文件进入独立识别页，不会被误当作文本编辑。
+- 权限失效、文件消失、编码异常和读取失败都有可恢复的错误页与重试入口。
+
+### Git 够用、可控、不静默覆盖
+
+支持公开 HTTPS 仓库浅克隆和已克隆仓库的安全快进更新。克隆/更新过程显示阶段、进度和取消入口；检测到本地修改或非快进状态时会停止并提示，不自动合并或覆盖用户内容。
+
+### 轻量编辑，而不是移动端 IDE
+
+默认只读，确认进入编辑模式后可对本地文件和可写 SAF 文件做小范围修改并保存。灵阅当前不负责编译、运行、调试、完整 LSP 或 IDE 级重构，把资源留给稳定阅读。
+
+## 快速体验
+
+### 直接安装
+
+从 [Releases](https://github.com/lonnnnnng/android-code-reader/releases) 下载正式 APK。当前正式版本：
+
+**[灵阅 v0.1.17](https://github.com/lonnnnnng/android-code-reader/releases/tag/v0.1.17)**
+
+安装包：
+
+- [AndroidCodeReader-v0.1.17.apk](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.17/AndroidCodeReader-v0.1.17.apk)
+- [SHA256SUMS](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.17/SHA256SUMS)
+
+### 三步开始阅读
+
+1. 从文件管理器、微信/邮件/网盘等应用使用“打开方式”或“分享”选择灵阅。
+2. 或在首页选择“打开文件 / 打开项目 / 导入 ZIP / 克隆 Git”。
+3. 在项目树中打开文件；需要定位时使用搜索、标签页、书签或 Markdown 目录。
+
+### 从源码构建
+
+```bash
+git clone https://github.com/lonnnnnng/android-code-reader.git
+cd android-code-reader
+./gradlew assembleDebug
+```
+
+Debug APK 输出在 `app/build/outputs/apk/debug/app-debug.apk`，Debug 包使用独立应用 ID `com.lonnnnnng.codereader.debug`，可以和正式版并存。
+
+## 能力一览
+
+| 能力域 | 已实现内容 |
+| --- | --- |
+| 文件入口 | `ACTION_VIEW`、`ACTION_EDIT`、`ACTION_SEND`；本地文件、SAF、ZIP、Git、内置示例 |
+| 项目导航 | 完整索引、可折叠目录树、最近打开、快速文件切换、当前文件定位 |
+| 搜索定位 | 文件内搜索、项目全局搜索、大小写/整词/正则、目录和文件类型范围、命中上下文 |
+| 持续阅读 | 多标签页、阅读位置恢复、文件书签、行书签、跳转到行 |
+| 源码阅读 | Sora Editor、行号、TextMate 语法高亮、自动换行、编码切换 |
+| Markdown | 源码/预览、代码高亮、KaTeX、Mermaid、表格、任务列表、脚注、目录、代码复制 |
+| 项目导入 | ZIP 安全解压、路径穿越拦截、公开 HTTPS Git 浅克隆、快进更新 |
+| 显示设置 | 11–24 sp 字号、阅读背景、整体配色、明暗模式、Darcula/高对比亮色代码主题 |
+| 在线更新 | GitHub Latest Release 检查、下载进度、SHA-256/包名/版本/签名校验、系统安装器接管安装 |
+
+### 目前明确的边界
+
+- Git 当前支持公开 HTTPS、浅克隆和安全快进更新；暂不支持 SSH、Token、私有仓库、分支切换、Tag、Diff 和冲突处理。
+- 超过设备可承受范围的大文件自动进入只读分段模式，不能直接编辑保存。
+- Markdown 预览默认禁用原始 HTML 和远程图片联网加载；本地图片、附件和源码/预览滚动同步仍在路线图中。
+- 灵阅不是编译器、调试器或完整移动 IDE。
+
+## 支持的文件类型
+
+当前 `FileType` 映射约 **78 种文件类型**，其中 **73 个类型带独立 TextMate grammar**，并已在 Pixel_9 模拟器完成 `78/78` 语法覆盖验证。
+
+<details>
+<summary>展开完整分类</summary>
+
+**语言与运行时**
+
+Java、Kotlin、AIDL、Clojure、Scala/SBT、Python、Go/Go Module、Rust、Dart、Swift、Zig、Julia、Fortran、R、PHP、Blade、Perl、Lua、Lisp、Ruby、C、C++、Objective-C、Objective-C++、Assembly、C#、F#、Visual Basic、Smali。
+
+**Web 与模板**
+
+JavaScript、JSX、TypeScript、TSX、Vue、Svelte、Astro、HTML、CSS、SCSS、Sass、Less、ERB、Twig、Razor、XML/XAML/SVG。
+
+**数据、配置与接口**
+
+JSON/JSONC、YAML/YML、TOML、Properties、INI/CFG、Dotenv/ENV、SQL、GraphQL、Protocol Buffers、Prisma、LaTeX。
+
+**构建、基础设施与脚本**
+
+Groovy/Gradle、CMake、HCL、Terraform、Nix、Nginx、Dockerfile、Makefile、Shell、Batch、PowerShell、ProGuard/R8、.NET Solution/Project。
+
+**文档与兜底类型**
+
+Markdown、MDX、TXT、LOG、CSV，以及无法识别时的 Plain Text 阅读。
+
+</details>
+
+## 技术架构
+
+```mermaid
+flowchart LR
+    A["本地文件 / 分享"] --> S["统一来源层"]
+    B["SAF 文件与目录"] --> S
+    C["ZIP 项目"] --> S
+    D["公开 HTTPS Git"] --> S
+    S --> I["项目索引与搜索"]
+    I --> N["目录树 / 标签页 / 书签"]
+    I --> R["源码阅读内核"]
+    R --> E["Sora Editor + TextMate"]
+    S --> M["Markdown 阅读内核"]
+    M --> W["离线 WebView"]
+    W --> V["Markdown-it + highlight.js + KaTeX + Mermaid"]
+```
+
+| 层次 | 技术与职责 |
+| --- | --- |
+| 产品界面 | Kotlin、Jetpack Compose、Material 3；负责导航、设置、弹层、项目树和阅读状态 |
+| 源码编辑器 | [Sora Editor](https://github.com/Rosemoe/sora-editor) `0.24.6`、TextMate grammar、Oniguruma；负责行号、语法高亮、编辑与跳转 |
+| Markdown 预览 | WebView + APK 内置 `markdown-it`、`highlight.js`、`KaTeX`、`Mermaid`；只承担 Markdown 高级渲染 |
+| 数据源 | Android Storage Access Framework、`DocumentFile`、应用私有目录、ZIP 流式解压、[Eclipse JGit](https://www.eclipse.org/jgit/) |
+| 领域能力 | `ProjectIndex`、`TextSearch`、`MarkdownOutlineParser`、编码检测、动态内存预算和大文件分页 |
+| 状态与异步 | `ViewModel`、Kotlin Coroutines、`SharedPreferences`；持久化最近项目、阅读位置、书签和显示偏好 |
+| 构建环境 | Android Gradle Plugin `9.2.1`、Kotlin `2.3.21`、Java `17`、最低 API `24`、目标 API `36` |
+
+### 为什么源码不用 WebView
+
+普通源码阅读使用原生 Sora Editor，获得更稳定的滚动、光标、行号、选择和编辑体验；WebView 只用于 Markdown，因为数学公式、Mermaid 和复杂排版更适合在离线 HTML 渲染层完成。这是灵阅在“阅读性能”和“文档表现力”之间的刻意分工。
+
+## 构建与验证
+
+日常构建：
+
+```bash
+./gradlew assembleDebug
+```
+
+发布前完整检查：
 
 ```bash
 ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest assembleRelease --console=plain
 ```
 
-应用 ID：`com.lonnnnnng.codereader`
+当前质量基线：
 
-最低 Android：API 24；目标 Android：API 36。
+- `Pixel_9` Android 模拟器全量 instrumentation：`46/46` 通过。
+- 语法覆盖：`78/78` 通过。
+- 覆盖 ZIP 路径安全、Git 克隆/快进更新、项目完整索引、大文件分段搜索、Markdown DOM 渲染、设置持久化和在线更新校验。
+- 当前项目回归严格使用 Pixel_9 模拟器；Redmi Note 8 Pro 真机不属于当前验证范围。
 
-Debug APK：`app/build/outputs/apk/debug/app-debug.apk`，应用 ID 为 `com.lonnnnnng.codereader.debug`，可与正式版并存。
+完整命令、测试项和边界记录见 [模拟器验证报告](docs/模拟器验证报告.md)。
+
+## 安全与隐私
+
+- 已导入的源码和 Markdown 默认在本地处理；Markdown 的高亮、公式和流程图资源随 APK 打包，离线也能渲染。
+- 网络仅用于用户主动触发的公开 HTTPS Git 克隆/更新，以及“关于与更新”中的固定 GitHub Release 检查与下载。
+- ZIP 导入会拦截路径穿越并清理失败的半成品目录。
+- 在线更新只接受固定 GitHub 仓库的正式 Release，并在交给系统安装器前校验文件摘要、大小、应用 ID、版本号和签名证书。
+- 应用不会静默安装 APK；安装流程始终由 Android 系统安装器接管。
+
+## 路线图
+
+当前 M1（可靠打开、项目索引、搜索、持续阅读）已完成，后续按以下顺序推进：
+
+| 阶段 | 方向 | 状态 |
+| --- | --- | --- |
+| M1 | 编码、大文件、完整索引、搜索、阅读位置与书签 | ✅ 已完成 |
+| M2 | Markdown 本地图片/附件、预览缓存、源码/预览同步、导出 | 🧭 规划中 |
+| M3 | 撤销/重做、查找替换、草稿恢复、保存反馈 | 🧭 规划中 |
+| M4 | Git 认证、分支/Tag、Diff、冲突查看、离线刷新 | 🧭 规划中 |
+| M5 | 符号大纲、TODO/日志导航、结构化视图、多项目工作区 | 🧭 规划中 |
+
+详见 [灵阅产品路线图](docs/产品路线图.md)。欢迎通过 Issue 讨论真实阅读场景，但每个新功能都需要说明它对打开速度、内存占用、离线可用性和失败恢复的影响。
+
+## 许可证与第三方声明
+
+本项目以 [Apache License 2.0](LICENSE) 发布。编辑器、Markdown 渲染器、语法资源和 Git 相关依赖的许可证与来源见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+<div align="center">
+
+<sub>灵阅 · 为移动端源码阅读而生</sub>
+
+</div>
