@@ -6,6 +6,7 @@ import android.view.ViewGroup
 import android.webkit.WebView
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -120,6 +121,39 @@ class MarkdownPreviewInstrumentedTest {
     }
 
     @Test
+    fun failedMediaMathAndDiagramKeepContentVisibleAndCanReturnToSource() {
+        openMarkdownDocument("RenderFallback.md")
+
+        val webView = waitForWebView()
+        waitForMarkdown(webView)
+        assertTrue("缺失图片应显示局部回退说明", domCount(webView, ".image-fallback") == 1)
+        val renderedContent = evaluate(webView, "document.getElementById('content')?.innerHTML || ''")
+        assertTrue(
+            "非法公式应显示局部回退说明，实际 DOM：$renderedContent",
+            domCount(webView, ".math-fallback") == 2,
+        )
+        assertTrue("非法流程图应显示局部回退说明", domCount(webView, ".diagram-fallback") == 1)
+        assertEquals(
+            "单个语法失败不能清空其余正文",
+            "true",
+            evaluate(webView, "document.body.textContent.includes('即使图片、公式或流程图失败') === true"),
+        )
+
+        evaluate(webView, "document.querySelector('.render-source-action')?.click(); true")
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithContentDescription("预览 Markdown").fetchSemanticsNodes().isNotEmpty()
+        }
+        assertTrue(
+            "回退按钮应切换到 Markdown 源码",
+            composeRule.onAllNodesWithContentDescription("预览 Markdown").fetchSemanticsNodes().isNotEmpty(),
+        )
+        assertTrue(
+            "源码视图应保留原始 Mermaid 内容",
+            waitForCodeEditor().text.toString().contains("flowchart TD"),
+        )
+    }
+
+    @Test
     fun switchingMarkdownModesKeepsNativeReaderViewsAlive() {
         openMarkdownDocument()
         val webViewBefore = waitForWebView()
@@ -176,13 +210,13 @@ class MarkdownPreviewInstrumentedTest {
         )
     }
 
-    private fun openMarkdownDocument() {
+    private fun openMarkdownDocument(name: String = "README.md") {
         composeRule.onNodeWithText("内置测试项目").performClick()
         composeRule.waitUntil(timeoutMillis = 10_000) {
             composeRule.onAllNodesWithTag("project-list").fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithTag("project-list").performScrollToNode(hasText("README.md"))
-        composeRule.onNodeWithText("README.md").performClick()
+        composeRule.onNodeWithTag("project-list").performScrollToNode(hasText(name))
+        composeRule.onNodeWithText(name).performClick()
     }
 
     private fun openSourceDocument(name: String) {

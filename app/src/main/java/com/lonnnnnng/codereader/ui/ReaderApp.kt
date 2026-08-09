@@ -2585,6 +2585,7 @@ private fun ReaderScreen(
                 documentPath = projectPath ?: document.name,
                 projectEntries = state.projectEntries,
                 onOpenResource = onOpenEntry,
+                onRequestSource = onTogglePreview,
                 command = state.readerCommand,
                 active = markdownSurfaceVisible,
                 modifier = readerSurfaceLayer(markdownSurfaceVisible),

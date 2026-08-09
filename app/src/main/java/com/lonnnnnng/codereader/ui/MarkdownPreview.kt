@@ -38,9 +38,13 @@ private class MarkdownDocumentBinding {
     var searchQuery: String? = null
     @Volatile var resourceIndex: MarkdownResourceIndex? = null
     var onOpenResource: ((SourceEntry) -> Unit)? = null
+    var onRequestSource: (() -> Unit)? = null
 }
 
-private class MarkdownBridge(context: Context) {
+private class MarkdownBridge(
+    context: Context,
+    private val onRequestSource: () -> Unit,
+) {
     private val appContext = context.applicationContext
 
     /** 预览页只加载 APK 内置 HTML，复制桥接不接受网页导航后的调用。 @author long */
@@ -51,6 +55,12 @@ private class MarkdownBridge(context: Context) {
         Handler(Looper.getMainLooper()).post {
             Toast.makeText(appContext, "代码已复制", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /** 渲染失败时回到当前 Markdown 源码，避免 Web 页面自行导航或持有原生界面引用。 @author long */
+    @JavascriptInterface
+    fun showSource() {
+        Handler(Looper.getMainLooper()).post(onRequestSource)
     }
 }
 
@@ -70,6 +80,7 @@ fun MarkdownPreview(
     documentPath: String,
     projectEntries: List<ProjectTreeEntry>,
     onOpenResource: (SourceEntry) -> Unit,
+    onRequestSource: () -> Unit,
     command: ReaderCommand?,
     active: Boolean,
     modifier: Modifier = Modifier,
@@ -121,12 +132,16 @@ fun MarkdownPreview(
                         return interceptMarkdownRequest(viewContext, binding.resourceIndex, request.url)
                     }
                 }
-                addJavascriptInterface(MarkdownBridge(viewContext), "CodeReader")
+                addJavascriptInterface(
+                    MarkdownBridge(viewContext) { binding.onRequestSource?.invoke() },
+                    "CodeReader",
+                )
             }
         },
         update = { webView ->
             binding.resourceIndex = resourceIndex
             binding.onOpenResource = onOpenResource
+            binding.onRequestSource = onRequestSource
             val documentChanged = binding.documentId != documentId
             if (documentChanged) {
                 binding.documentId = documentId

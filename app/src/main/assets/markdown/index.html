@@ -314,12 +314,42 @@
     }
 
     .render-error {
+      margin: 0.8em 0 1em;
       padding: 12px;
       border: 1px solid #b00020;
       border-radius: 6px;
       background: #fff0f2;
       color: #8b0018;
       white-space: pre-wrap;
+    }
+
+    .render-error-title {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 700;
+    }
+
+    .render-error-source {
+      display: block;
+      margin: 8px 0;
+      padding: 8px 10px;
+      overflow-x: auto;
+      border: 1px solid currentColor;
+      border-radius: 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.9em;
+      white-space: pre-wrap;
+    }
+
+    .render-source-action {
+      min-height: 36px;
+      padding: 6px 10px;
+      border: 1px solid currentColor;
+      border-radius: 4px;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      font-weight: 700;
     }
 
     body.dark .render-error {
@@ -437,6 +467,32 @@
       });
     }
 
+    function createRenderFallback(className, title, source) {
+      const fallback = document.createElement("div");
+      fallback.className = "render-error render-fallback " + className;
+      fallback.setAttribute("role", "status");
+
+      const heading = document.createElement("strong");
+      heading.className = "render-error-title";
+      heading.textContent = title;
+      fallback.appendChild(heading);
+
+      const rawSource = document.createElement("code");
+      rawSource.className = "render-error-source";
+      rawSource.textContent = source || "（没有可显示的原始内容）";
+      fallback.appendChild(rawSource);
+
+      const action = document.createElement("button");
+      action.type = "button";
+      action.className = "render-source-action";
+      action.textContent = "查看源码";
+      action.addEventListener("click", function() {
+        if (window.CodeReader) window.CodeReader.showSource();
+      });
+      fallback.appendChild(action);
+      return fallback;
+    }
+
     function installImageLightbox(container) {
       const lightbox = document.createElement("div");
       lightbox.className = "image-lightbox";
@@ -451,12 +507,64 @@
       document.body.appendChild(lightbox);
 
       container.querySelectorAll("img").forEach(function(image) {
+        const showFailure = function() {
+          if (!image.isConnected) return;
+          const source = "![" + (image.alt || "图片") + "](" + (image.getAttribute("src") || "") + ")";
+          image.replaceWith(createRenderFallback("image-fallback", "图片无法加载，已保留原始引用", source));
+        };
+        image.addEventListener("error", showFailure, { once: true });
+        if (image.complete && image.naturalWidth === 0) {
+          showFailure();
+          return;
+        }
         image.addEventListener("click", function() {
           preview.src = image.currentSrc || image.src;
           preview.alt = image.alt || "Markdown 图片";
           lightbox.classList.add("open");
         });
       });
+    }
+
+    function installMathFallbacks(container, failedFormulas) {
+      container.querySelectorAll(".katex-error").forEach(function(error) {
+        const source = error.textContent || error.getAttribute("title") || "";
+        error.replaceWith(createRenderFallback("math-fallback", "数学公式无法渲染，已保留原始内容", source));
+      });
+
+      failedFormulas.forEach(function(formula) {
+        const candidates = [
+          "$$" + formula + "$$",
+          "\\[" + formula + "\\]",
+          "\\(" + formula + "\\)",
+          "$" + formula + "$"
+        ];
+        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+        let failedNode = null;
+        while (walker.nextNode()) {
+          if (candidates.includes(walker.currentNode.nodeValue || "")) {
+            failedNode = walker.currentNode;
+            break;
+          }
+        }
+        if (failedNode) {
+          failedNode.replaceWith(
+            createRenderFallback("math-fallback", "数学公式无法渲染，已保留原始内容", failedNode.nodeValue)
+          );
+        }
+      });
+    }
+
+    async function renderMermaidDiagrams(container) {
+      const diagrams = Array.from(container.querySelectorAll(".mermaid"));
+      for (const diagram of diagrams) {
+        const source = diagram.textContent || "";
+        try {
+          await mermaid.run({ nodes: [diagram], suppressErrors: false });
+        } catch (error) {
+          const shell = diagram.closest(".diagram-shell") || diagram;
+          shell.replaceWith(createRenderFallback("diagram-fallback", "Mermaid 流程图无法渲染，已保留源码", source));
+        }
+      }
     }
 
     function scrollToHeading(index) {
@@ -486,12 +594,20 @@
         });
         if (!textNode) throw new Error("找不到块级公式占位符：" + block.marker);
 
-        const host = document.createElement("div");
+        let host = document.createElement("div");
         host.className = "math-block";
-        katex.render(block.formula, host, {
-          displayMode: true,
-          throwOnError: false
-        });
+        try {
+          katex.render(block.formula, host, {
+            displayMode: true,
+            throwOnError: true
+          });
+        } catch (error) {
+          host = createRenderFallback(
+            "math-fallback",
+            "数学公式无法渲染，已保留原始内容",
+            "$$\n" + block.formula + "\n$$"
+          );
+        }
 
         const parent = textNode.parentElement;
         if (parent && parent.tagName === "P" && parent.textContent.trim() === block.marker) {
@@ -536,6 +652,8 @@
         installImageLightbox(content);
         renderExtractedMathBlocks(content, extractedMath.blocks);
 
+        const failedFormulas = [];
+        let activeFormula = "";
         renderMathInElement(content, {
           delimiters: [
             { left: "$$", right: "$$", display: true },
@@ -544,8 +662,17 @@
             { left: "$", right: "$", display: false }
           ],
           ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code"],
-          throwOnError: false
+          throwOnError: true,
+          // auto-render 的错误回调不提供 DOM 节点；preProcess 同步记录当前公式，便于就地恢复原始文本。 @author long
+          preProcess: function(formula) {
+            activeFormula = formula;
+            return formula;
+          },
+          errorCallback: function() {
+            failedFormulas.push(activeFormula);
+          }
         });
+        installMathFallbacks(content, failedFormulas);
 
         mermaid.initialize({
           startOnLoad: false,
@@ -553,7 +680,7 @@
           theme: darkTheme ? "dark" : "default",
           flowchart: { htmlLabels: false, useMaxWidth: true }
         });
-        await mermaid.run({ querySelector: ".mermaid", suppressErrors: false });
+        await renderMermaidDiagrams(content);
         document.documentElement.dataset.markdownReady = "true";
       } catch (error) {
         content.insertAdjacentHTML(
