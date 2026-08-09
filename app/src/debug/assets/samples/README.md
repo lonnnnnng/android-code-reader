@@ -11,6 +11,12 @@ verified: true
 
 > 这份文档用于验证灵阅的常用 Markdown、代码高亮、数学公式和 Mermaid 流程图。
 
+## 本地图片与附件
+
+![灵阅阅读内核示意图](media/reader-architecture.svg)
+
+点击图片可进入放大预览；[打开同项目附件](attachments/快速阅读说明.txt) 可继续在灵阅中阅读。
+
 ## 文本格式
 
 普通文本支持 **粗体**、*斜体*、***粗斜体***、~~删除线~~、`inline code`，以及 [GitHub 链接](https://github.com/)。

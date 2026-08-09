@@ -10,7 +10,9 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Base64
 import android.webkit.JavascriptInterface
+import android.webkit.MimeTypeMap
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -20,6 +22,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import com.lonnnnnng.codereader.model.EntryLocation
+import com.lonnnnnng.codereader.model.ProjectTreeEntry
+import com.lonnnnnng.codereader.model.SourceEntry
+import java.io.ByteArrayInputStream
+import java.io.FileNotFoundException
 
 private class MarkdownDocumentBinding {
     var documentId: String? = null
@@ -29,6 +36,8 @@ private class MarkdownDocumentBinding {
     var backgroundColorArgb: Int? = null
     var commandId: Long? = null
     var searchQuery: String? = null
+    @Volatile var resourceIndex: MarkdownResourceIndex? = null
+    var onOpenResource: ((SourceEntry) -> Unit)? = null
 }
 
 private class MarkdownBridge(context: Context) {
@@ -58,6 +67,9 @@ fun MarkdownPreview(
     darkTheme: Boolean,
     fontSizeSp: Float,
     backgroundColorArgb: Int,
+    documentPath: String,
+    projectEntries: List<ProjectTreeEntry>,
+    onOpenResource: (SourceEntry) -> Unit,
     command: ReaderCommand?,
     active: Boolean,
     modifier: Modifier = Modifier,
@@ -66,6 +78,9 @@ fun MarkdownPreview(
     val binding = remember { MarkdownDocumentBinding() }
     val htmlTemplate = remember(context) {
         context.assets.open("markdown/index.html").bufferedReader().use { it.readText() }
+    }
+    val resourceIndex = remember(documentPath, projectEntries) {
+        MarkdownResourceIndex(documentPath, projectEntries)
     }
 
     AndroidView(
@@ -77,7 +92,7 @@ fun MarkdownPreview(
                     javaScriptEnabled = true
                     domStorageEnabled = false
                     allowContentAccess = false
-                    allowFileAccess = true
+                    allowFileAccess = false
                     blockNetworkLoads = true
                     mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                     javaScriptCanOpenWindowsAutomatically = false
@@ -88,13 +103,30 @@ fun MarkdownPreview(
                 }
                 webViewClient = object : WebViewClient() {
                     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                        if (binding.resourceIndex?.isCurrentDocument(request.url) == true && request.url.fragment != null) {
+                            return false
+                        }
+                        val resource = binding.resourceIndex?.resolve(request.url)
+                        if (resource != null) {
+                            binding.onOpenResource?.invoke(resource)
+                            return true
+                        }
                         return openExternalLink(view, request.url)
+                    }
+
+                    override fun shouldInterceptRequest(
+                        view: WebView,
+                        request: WebResourceRequest,
+                    ): WebResourceResponse? {
+                        return interceptMarkdownRequest(viewContext, binding.resourceIndex, request.url)
                     }
                 }
                 addJavascriptInterface(MarkdownBridge(viewContext), "CodeReader")
             }
         },
         update = { webView ->
+            binding.resourceIndex = resourceIndex
+            binding.onOpenResource = onOpenResource
             val documentChanged = binding.documentId != documentId
             if (documentChanged) {
                 binding.documentId = documentId
@@ -117,7 +149,7 @@ fun MarkdownPreview(
                 // 主题和正文一起重载，避免 WebView 保留上一份文档的 Mermaid 或 KaTeX 节点。
                 webView.setBackgroundColor(backgroundColorArgb)
                 webView.loadDataWithBaseURL(
-                    "file:///android_asset/markdown/",
+                    resourceIndex.documentUrl,
                     html,
                     "text/html",
                     "UTF-8",
@@ -195,3 +227,55 @@ private fun openExternalLink(webView: WebView, uri: Uri): Boolean {
         true
     }.getOrDefault(true)
 }
+
+private fun interceptMarkdownRequest(
+    context: Context,
+    resourceIndex: MarkdownResourceIndex?,
+    uri: Uri,
+): WebResourceResponse? {
+    if (uri.scheme != VIRTUAL_SCHEME || uri.host != VIRTUAL_HOST) return null
+    val segments = uri.pathSegments
+    if (segments.firstOrNull() == ASSET_PREFIX) {
+        val assetPath = segments.drop(1).joinToString("/")
+        if (!assetPath.startsWith("markdown/")) return missingResourceResponse()
+        return runCatching {
+            webResourceResponse(assetPath, context.assets.open(assetPath))
+        }.getOrElse { missingResourceResponse() }
+    }
+    val source = resourceIndex?.resolve(uri) ?: return missingResourceResponse()
+    return runCatching {
+        val input = when (val location = source.location) {
+            is EntryLocation.Local -> location.file.inputStream()
+            is EntryLocation.Saf -> context.contentResolver.openInputStream(location.uri)
+                ?: throw FileNotFoundException(source.name)
+        }
+        val mimeType = when (val location = source.location) {
+            is EntryLocation.Saf -> context.contentResolver.getType(location.uri)
+            is EntryLocation.Local -> null
+        } ?: mimeTypeForPath(source.name)
+        WebResourceResponse(mimeType, null, input)
+    }.getOrElse { missingResourceResponse() }
+}
+
+private fun webResourceResponse(path: String, input: java.io.InputStream): WebResourceResponse {
+    val mimeType = when {
+        path.endsWith(".js", ignoreCase = true) -> "text/javascript"
+        path.endsWith(".css", ignoreCase = true) -> "text/css"
+        else -> mimeTypeForPath(path)
+    }
+    return WebResourceResponse(mimeType, null, input)
+}
+
+private fun mimeTypeForPath(path: String): String {
+    val extension = path.substringAfterLast('.', "").lowercase()
+    return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "application/octet-stream"
+}
+
+private fun missingResourceResponse(): WebResourceResponse = WebResourceResponse(
+    "text/plain",
+    "UTF-8",
+    404,
+    "Not Found",
+    mapOf("Cache-Control" to "no-store"),
+    ByteArrayInputStream("Markdown resource not found".toByteArray()),
+)

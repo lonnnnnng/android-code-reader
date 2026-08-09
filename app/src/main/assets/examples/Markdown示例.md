@@ -12,6 +12,12 @@ verified: true
 
 这份文档展示灵阅支持的常用 Markdown 能力，所有内容均可离线渲染。
 
+## 本地图片与附件
+
+![灵阅阅读内核示意图](media/reader-architecture.svg)
+
+点击图片可进入放大预览；[打开同项目附件](attachments/快速阅读说明.txt) 可继续在灵阅中阅读。
+
 ## 文本与列表
 
 支持 **粗体**、*斜体*、~~删除线~~、`inline code` 和 [GitHub 链接](https://github.com/)。

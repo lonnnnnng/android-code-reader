@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="420" viewBox="0 0 960 420" role="img" aria-labelledby="title desc">
+  <title id="title">灵阅阅读内核</title>
+  <desc id="desc">项目来源经过统一索引后分别进入源码阅读器和 Markdown 预览器</desc>
+  <rect width="960" height="420" rx="24" fill="#f3f6f5"/>
+  <rect x="70" y="135" width="210" height="150" rx="16" fill="#fff" stroke="#16745a" stroke-width="4"/>
+  <text x="175" y="190" text-anchor="middle" font-family="sans-serif" font-size="28" fill="#14352c">项目来源</text>
+  <text x="175" y="232" text-anchor="middle" font-family="sans-serif" font-size="20" fill="#48665d">目录 · ZIP · Git · SAF</text>
+  <path d="M280 210H390M380 196L398 210L380 224" fill="none" stroke="#16745a" stroke-width="6"/>
+  <rect x="400" y="135" width="180" height="150" rx="16" fill="#16745a"/>
+  <text x="490" y="198" text-anchor="middle" font-family="sans-serif" font-size="26" font-weight="700" fill="#fff">统一索引</text>
+  <text x="490" y="238" text-anchor="middle" font-family="sans-serif" font-size="19" fill="#d9eee7">路径 · 编码 · 权限</text>
+  <path d="M580 180H675M580 240H675" stroke="#16745a" stroke-width="6"/>
+  <rect x="680" y="85" width="210" height="120" rx="16" fill="#fff" stroke="#315b91" stroke-width="4"/>
+  <text x="785" y="154" text-anchor="middle" font-family="sans-serif" font-size="26" fill="#203e65">Sora 源码阅读</text>
+  <rect x="680" y="225" width="210" height="120" rx="16" fill="#fff" stroke="#7a4b9e" stroke-width="4"/>
+  <text x="785" y="294" text-anchor="middle" font-family="sans-serif" font-size="26" fill="#56346f">Markdown 预览</text>
+</svg>

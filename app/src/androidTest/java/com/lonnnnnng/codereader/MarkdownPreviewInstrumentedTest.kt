@@ -7,6 +7,7 @@ import android.webkit.WebView
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -68,6 +69,53 @@ class MarkdownPreviewInstrumentedTest {
             "Front Matter 展开后必须保留原始 YAML 内容",
             "true",
             evaluate(webView, "document.querySelector('.front-matter')?.textContent.includes('category: Android 阅读器') === true"),
+        )
+    }
+
+    @Test
+    fun localImageCanBeZoomedAndRelativeAttachmentCanBeOpened() {
+        openMarkdownDocument()
+
+        val webView = waitForWebView()
+        waitForMarkdown(webView)
+        assertEquals(
+            "本地 SVG 图片应从当前项目加载完成",
+            "true",
+            evaluate(
+                webView,
+                "document.querySelector('#content img')?.complete === true && " +
+                    "document.querySelector('#content img')?.naturalWidth > 0",
+            ),
+        )
+
+        evaluate(webView, "document.querySelector('#content img')?.click(); true")
+        assertEquals(
+            "点击图片后应打开沉浸式放大层",
+            "true",
+            evaluate(webView, "document.querySelector('.image-lightbox')?.classList.contains('open') === true"),
+        )
+        evaluate(webView, "document.querySelector('.image-lightbox')?.click(); true")
+        assertEquals(
+            "再次点击放大层应关闭图片预览",
+            "false",
+            evaluate(webView, "document.querySelector('.image-lightbox')?.classList.contains('open') === true"),
+        )
+
+        evaluate(
+            webView,
+            "Array.from(document.querySelectorAll('a')).find(a => a.textContent.includes('打开同项目附件'))?.click(); true",
+        )
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithText("快速阅读说明.txt").fetchSemanticsNodes().isNotEmpty()
+        }
+        assertTrue(
+            "附件打开后标题栏或标签页应显示文件名",
+            composeRule.onAllNodesWithText("快速阅读说明.txt").fetchSemanticsNodes().isNotEmpty(),
+        )
+        val attachmentEditor = waitForCodeEditor()
+        assertTrue(
+            "附件正文应进入 Sora 阅读内核",
+            attachmentEditor.text.toString().contains("灵阅会根据 Markdown 文件所在目录解析相对路径。"),
         )
     }
 

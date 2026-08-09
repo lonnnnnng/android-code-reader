@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5">
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:">
-  <link rel="stylesheet" href="vendor/katex/katex.min.css">
+  <link rel="stylesheet" href="/assets/markdown/vendor/katex/katex.min.css">
   <style>
     :root {
       color-scheme: light;
@@ -204,6 +204,35 @@
       height: auto;
     }
 
+    #content img {
+      display: block;
+      margin: 0.9em auto;
+      border-radius: 6px;
+      cursor: zoom-in;
+    }
+
+    .image-lightbox {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      background: rgba(0, 0, 0, 0.86);
+    }
+
+    .image-lightbox.open {
+      display: flex;
+    }
+
+    .image-lightbox img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      cursor: zoom-out;
+    }
+
     .task-list-item {
       list-style: none;
       margin-left: -1.35em;
@@ -332,13 +361,13 @@
 <body class="__BODY_CLASS__">
   <main id="content"></main>
 
-  <script src="vendor/markdown-it.min.js"></script>
-  <script src="vendor/markdown-it-task-lists.min.js"></script>
-  <script src="vendor/markdown-it-footnote.min.js"></script>
-  <script src="vendor/highlight.min.js"></script>
-  <script src="vendor/katex/katex.min.js"></script>
-  <script src="vendor/katex/contrib/auto-render.min.js"></script>
-  <script src="vendor/mermaid.min.js"></script>
+  <script src="/assets/markdown/vendor/markdown-it.min.js"></script>
+  <script src="/assets/markdown/vendor/markdown-it-task-lists.min.js"></script>
+  <script src="/assets/markdown/vendor/markdown-it-footnote.min.js"></script>
+  <script src="/assets/markdown/vendor/highlight.min.js"></script>
+  <script src="/assets/markdown/vendor/katex/katex.min.js"></script>
+  <script src="/assets/markdown/vendor/katex/contrib/auto-render.min.js"></script>
+  <script src="/assets/markdown/vendor/mermaid.min.js"></script>
   <script>
     const darkTheme = __DARK_THEME__;
     const markdownBase64 = "__MARKDOWN_BASE64__";
@@ -405,6 +434,28 @@
           if (window.CodeReader) window.CodeReader.copyText(code.textContent || "");
         });
         pre.insertBefore(button, code);
+      });
+    }
+
+    function installImageLightbox(container) {
+      const lightbox = document.createElement("div");
+      lightbox.className = "image-lightbox";
+      lightbox.setAttribute("role", "dialog");
+      lightbox.setAttribute("aria-label", "图片预览");
+      const preview = document.createElement("img");
+      lightbox.appendChild(preview);
+      lightbox.addEventListener("click", function() {
+        lightbox.classList.remove("open");
+        preview.removeAttribute("src");
+      });
+      document.body.appendChild(lightbox);
+
+      container.querySelectorAll("img").forEach(function(image) {
+        image.addEventListener("click", function() {
+          preview.src = image.currentSrc || image.src;
+          preview.alt = image.alt || "Markdown 图片";
+          lightbox.classList.add("open");
+        });
       });
     }
 
@@ -482,6 +533,7 @@
         installFrontMatter(content, frontMatter.yaml);
         installHeadingAnchors(content);
         installCodeCopyButtons(content);
+        installImageLightbox(content);
         renderExtractedMathBlocks(content, extractedMath.blocks);
 
         renderMathInElement(content, {
