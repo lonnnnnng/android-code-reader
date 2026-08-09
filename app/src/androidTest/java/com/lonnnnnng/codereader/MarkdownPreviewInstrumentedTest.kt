@@ -1,5 +1,6 @@
 package com.lonnnnnng.codereader
 
+import android.content.ClipboardManager
 import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
@@ -17,8 +18,10 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.platform.app.InstrumentationRegistry
+import com.lonnnnnng.codereader.share.MarkdownExportActions
 import com.lonnnnnng.codereader.ui.ReaderViewModel
 import io.github.rosemoe.sora.widget.CodeEditor
+import org.json.JSONTokener
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
@@ -331,6 +334,64 @@ class MarkdownPreviewInstrumentedTest {
     }
 
     @Test
+    fun renderedMarkdownTextCanBeCopiedFromReaderActions() {
+        openMarkdownDocument()
+        val webView = waitForWebView()
+        waitForMarkdown(webView)
+
+        composeRule.onNodeWithContentDescription("更多").performClick()
+        assertTrue("Markdown 预览应提供 HTML 导出入口", composeRule.onAllNodesWithText("导出 HTML").fetchSemanticsNodes().isNotEmpty())
+        assertTrue("Markdown 预览应提供渲染结果分享入口", composeRule.onAllNodesWithText("分享渲染结果").fetchSemanticsNodes().isNotEmpty())
+        assertTrue("Markdown 预览应提供 PDF 导出入口", composeRule.onAllNodesWithText("导出 PDF").fetchSemanticsNodes().isNotEmpty())
+        composeRule.onNodeWithText("复制渲染文本").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            val clipboard = InstrumentationRegistry.getInstrumentation().targetContext
+                .getSystemService(ClipboardManager::class.java)
+            clipboard?.primaryClip?.getItemAt(0)?.coerceToText(
+                InstrumentationRegistry.getInstrumentation().targetContext,
+            )?.toString()?.contains("数学公式") == true
+        }
+        val copiedText = InstrumentationRegistry.getInstrumentation().targetContext
+            .getSystemService(ClipboardManager::class.java)
+            ?.primaryClip
+            ?.getItemAt(0)
+            ?.coerceToText(InstrumentationRegistry.getInstrumentation().targetContext)
+            ?.toString()
+            .orEmpty()
+        assertTrue("复制结果不应包含代码块的应用内“复制”按钮", !copiedText.contains("复制"))
+    }
+
+    @Test
+    fun renderedMarkdownHtmlIsPortableDomWithoutRuntimeScripts() {
+        openMarkdownDocument()
+        val webView = waitForWebView()
+        waitForMarkdown(webView)
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            evaluate(
+                webView,
+                "document.querySelector('#content img')?.complete === true && " +
+                    "document.querySelector('#content img')?.naturalWidth > 0",
+            ) == "true"
+        }
+
+        val exportedHtml = evaluateString(webView, "renderedMarkdownHtml()")
+        assertTrue("HTML 导出应保留已渲染正文", exportedHtml.contains("数学公式"))
+        assertTrue("HTML 导出应保留 Mermaid SVG", exportedHtml.contains("<svg"))
+        assertTrue("HTML 导出应将项目图片内联为 data URI", exportedHtml.contains("data:image/png;base64,"))
+        assertTrue("HTML 导出不应继续依赖脚本", !exportedHtml.contains("<script"))
+        assertTrue("HTML 导出不应继续依赖 WebView 虚拟样式链接", !exportedHtml.contains("katex.min.css"))
+
+        val preparedHtml = MarkdownExportActions.prepareHtml(
+            InstrumentationRegistry.getInstrumentation().targetContext,
+            exportedHtml,
+            "README.md",
+        )
+        assertTrue("HTML 导出应写入文档标题", preparedHtml.contains("<title>README.md</title>"))
+        assertTrue("KaTeX WOFF2 字体应内联到单文件 HTML", preparedHtml.contains("data:font/woff2;base64,"))
+        assertTrue("KaTeX 字体不应保留应用内相对路径", !preparedHtml.contains("url(fonts/"))
+    }
+
+    @Test
     fun switchingFromSourceTabBackToMarkdownKeepsPreviewWebViewAlive() {
         openSourceDocument("app.js")
         openMarkdownDocumentFromHome()
@@ -358,13 +419,16 @@ class MarkdownPreviewInstrumentedTest {
         assertTrue("缓存测试文档应能滚动", scrollBefore > 0)
         SystemClock.sleep(300)
         val sourceLineBefore = currentPreviewSourceLine(webViewBefore)
+        val viewModel = ViewModelProvider(composeRule.activity)[ReaderViewModel::class.java]
+        val firstDocumentId = requireNotNull(viewModel.state.value.activeTabId)
 
         composeRule.onNodeWithContentDescription("快速切换文件").performClick()
         composeRule.onNodeWithContentDescription("打开 demo/README.md").performClick()
         composeRule.waitUntil(timeoutMillis = 10_000) {
-            composeRule.onAllNodesWithContentDescription("关闭 README.md").fetchSemanticsNodes().size >= 2
+            viewModel.state.value.activeTabId != firstDocumentId &&
+                viewModel.state.value.currentProjectPath == "demo/README.md"
         }
-        val webViewAfterOpen = waitForWebView()
+        val webViewAfterOpen = waitForDifferentWebView(webViewBefore)
         waitForMarkdown(webViewAfterOpen)
         composeRule.waitUntil(timeoutMillis = 10_000) {
             evaluate(webViewAfterOpen, "document.body.textContent.includes('Demo 模块') === true") == "true"
@@ -461,6 +525,29 @@ class MarkdownPreviewInstrumentedTest {
         return requireNotNull(result)
     }
 
+    private fun waitForDifferentWebView(previous: WebView): WebView {
+        var result: WebView? = null
+        composeRule.waitUntil(timeoutMillis = 20_000) {
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                result = findDifferentWebView(
+                    composeRule.activity.findViewById(android.R.id.content),
+                    previous,
+                )
+            }
+            result != null
+        }
+        return requireNotNull(result)
+    }
+
+    private fun findDifferentWebView(view: View, previous: WebView): WebView? {
+        if (view is WebView) return view.takeIf { it !== previous }
+        if (view !is ViewGroup) return null
+        repeat(view.childCount) { index ->
+            findDifferentWebView(view.getChildAt(index), previous)?.let { return it }
+        }
+        return null
+    }
+
     private fun waitForCodeEditor(): CodeEditor {
         var result: CodeEditor? = null
         composeRule.waitUntil(timeoutMillis = 10_000) {
@@ -524,6 +611,12 @@ class MarkdownPreviewInstrumentedTest {
         }
         assertTrue("等待 WebView JavaScript 返回超时", latch.await(10, TimeUnit.SECONDS))
         return result
+    }
+
+    private fun evaluateString(webView: WebView, script: String): String {
+        return runCatching { JSONTokener(evaluate(webView, script)).nextValue() as? String }
+            .getOrNull()
+            .orEmpty()
     }
 
     private fun findWebView(view: View): WebView? {

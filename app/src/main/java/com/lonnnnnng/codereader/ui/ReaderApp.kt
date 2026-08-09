@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.net.Uri
+import android.webkit.WebView
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -83,10 +84,12 @@ import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.UnfoldMore
 import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -172,6 +175,7 @@ import com.lonnnnnng.codereader.model.ReaderTheme
 import com.lonnnnnng.codereader.model.SourceEntry
 import com.lonnnnnng.codereader.model.TextEncoding
 import com.lonnnnnng.codereader.share.ReaderFileOpener
+import com.lonnnnnng.codereader.share.MarkdownExportActions
 import com.lonnnnnng.codereader.update.AppUpdateInstaller
 import java.io.File
 
@@ -186,6 +190,29 @@ fun ReaderApp(viewModel: ReaderViewModel) {
     val colors = appColorScheme(state.theme, state.settings.appPalette)
     var showGitDialog by remember { mutableStateOf(false) }
     var showExitConfirmation by rememberSaveable { mutableStateOf(false) }
+    var pendingHtmlExportPath by rememberSaveable { mutableStateOf<String?>(null) }
+
+    val createHtmlDocument = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/html"),
+    ) { uri ->
+        val source = pendingHtmlExportPath?.let(::File)
+        pendingHtmlExportPath = null
+        if (uri == null || source == null) {
+            source?.delete()
+            return@rememberLauncherForActivityResult
+        }
+        runCatching {
+            context.contentResolver.openOutputStream(uri)?.use { output ->
+                source.inputStream().use { input -> input.copyTo(output) }
+            } ?: error("无法写入目标文件")
+            viewModel.reportMessage("HTML 已保存")
+        }.onFailure { error ->
+            viewModel.reportMessage("保存 HTML 失败：${error.message ?: error.javaClass.simpleName}")
+        }.also {
+            // 系统文件创建器回调后立即清理内部中转文件，避免多次导出长期占用缓存空间。 @author long
+            source.delete()
+        }
+    }
 
     val openFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
@@ -353,7 +380,23 @@ fun ReaderApp(viewModel: ReaderViewModel) {
                             onToggleTheme = viewModel::toggleTheme,
                             onLocateCurrentFile = viewModel::locateCurrentFileInProject,
                             onCopyFullPath = copyFullPath,
-                            )
+                            onReportMessage = viewModel::reportMessage,
+                            onExportHtml = { title, html ->
+                                var preparedFile: File? = null
+                                runCatching {
+                                    pendingHtmlExportPath?.let(::File)?.delete()
+                                    val target = MarkdownExportActions.createPreparedHtmlFile(context, html, title)
+                                    preparedFile = target
+                                    pendingHtmlExportPath = target.absolutePath
+                                    createHtmlDocument.launch("${title.substringBeforeLast('.', title)}.html")
+                                }.onFailure { error ->
+                                    // 文件创建器未能启动时不会收到 ActivityResult 回调，必须在当前分支清理中转文件。 @author long
+                                    preparedFile?.delete()
+                                    pendingHtmlExportPath = null
+                                    viewModel.reportMessage("准备 HTML 失败：${error.message ?: error.javaClass.simpleName}")
+                                }
+                            },
+                        )
                             AppScreen.BINARY -> state.binaryFile?.let { binaryFile ->
                                 BinaryFileScreen(
                                     fileInfo = binaryFile,
@@ -2342,6 +2385,8 @@ private fun ReaderScreen(
     onToggleTheme: () -> Unit,
     onLocateCurrentFile: () -> Unit,
     onCopyFullPath: (String) -> Unit,
+    onReportMessage: (String) -> Unit,
+    onExportHtml: (String, String) -> Unit,
 ) {
     val document = state.document ?: return
     var searchVisible by remember(document.id) { mutableStateOf(state.fileSearchQuery.isNotBlank()) }
@@ -2365,6 +2410,7 @@ private fun ReaderScreen(
     val displayPath = projectPath?.takeUnless { it == document.name }
     val markdownSurfaceVisible = document.fileType.markdown && state.markdownPreview
     val markdownHeadings = state.markdownHeadings
+    var markdownWebView by remember(document.id) { mutableStateOf<WebView?>(null) }
 
     LaunchedEffect(document.id, markdownSurfaceVisible) {
         // 源码模式没有目录锚点可跳转，返回预览时从紧凑状态开始，避免目录意外挤占正文。 @author long
@@ -2496,6 +2542,15 @@ private fun ReaderScreen(
                                     modifier = Modifier.heightIn(min = ReaderDimens.iconTouchTarget),
                                 )
                             }
+                            if (document.fileType.markdown && state.markdownPreview) {
+                                MarkdownExportMenuItems(
+                                    preview = markdownWebView,
+                                    documentName = document.name,
+                                    onDismiss = { menuExpanded = false },
+                                    onReportMessage = onReportMessage,
+                                    onExportHtml = onExportHtml,
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("文件编码：${document.encoding.displayName}") },
                                 leadingIcon = { Icon(Icons.Outlined.Description, contentDescription = null) },
@@ -2617,6 +2672,7 @@ private fun ReaderScreen(
                 onOpenResource = onOpenEntry,
                 onRequestSource = onTogglePreview,
                 onReadingPositionChanged = onReadingPositionChanged,
+                onWebViewReady = { markdownWebView = it },
                 command = state.readerCommand,
                 active = markdownSurfaceVisible,
                 modifier = readerSurfaceLayer(markdownSurfaceVisible),
@@ -2727,6 +2783,75 @@ private fun ReaderScreen(
             }
         }
     }
+}
+
+/** Markdown 导出动作集中在同一菜单片段，避免阅读页继续承担系统分享与打印细节。 @author long */
+@Composable
+private fun MarkdownExportMenuItems(
+    preview: WebView?,
+    documentName: String,
+    onDismiss: () -> Unit,
+    onReportMessage: (String) -> Unit,
+    onExportHtml: (String, String) -> Unit,
+) {
+    DropdownMenuItem(
+        text = { Text("复制渲染文本") },
+        leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null) },
+        enabled = preview != null,
+        onClick = {
+            onDismiss()
+            preview?.let {
+                MarkdownExportActions.copyRenderedText(it.context, it, onReportMessage)
+            }
+        },
+        contentPadding = PaddingValues(horizontal = 12.dp),
+        modifier = Modifier.heightIn(min = ReaderDimens.iconTouchTarget),
+    )
+    DropdownMenuItem(
+        text = { Text("导出 HTML") },
+        leadingIcon = { Icon(Icons.Outlined.Description, contentDescription = null) },
+        enabled = preview != null,
+        onClick = {
+            onDismiss()
+            preview?.let {
+                MarkdownExportActions.renderedHtml(it) { html ->
+                    if (html.isBlank()) {
+                        onReportMessage("当前预览还没有完成，暂时无法导出")
+                    } else {
+                        onExportHtml(documentName, html)
+                    }
+                }
+            }
+        },
+        contentPadding = PaddingValues(horizontal = 12.dp),
+        modifier = Modifier.heightIn(min = ReaderDimens.iconTouchTarget),
+    )
+    DropdownMenuItem(
+        text = { Text("分享渲染结果") },
+        leadingIcon = { Icon(Icons.Outlined.Share, contentDescription = null) },
+        enabled = preview != null,
+        onClick = {
+            onDismiss()
+            preview?.let {
+                MarkdownExportActions.shareRenderedHtml(it.context, it, documentName, onReportMessage)
+            }
+        },
+        contentPadding = PaddingValues(horizontal = 12.dp),
+        modifier = Modifier.heightIn(min = ReaderDimens.iconTouchTarget),
+    )
+    DropdownMenuItem(
+        text = { Text("导出 PDF") },
+        leadingIcon = { Icon(Icons.Outlined.PictureAsPdf, contentDescription = null) },
+        enabled = preview != null,
+        onClick = {
+            onDismiss()
+            preview?.let {
+                MarkdownExportActions.printRenderedMarkdown(it.context, it, documentName, onReportMessage)
+            }
+        },
+        contentPadding = PaddingValues(horizontal = 12.dp),
+        modifier = Modifier.heightIn(min = ReaderDimens.iconTouchTarget),
+    )
 }
 
 /** Markdown 的两个原生阅读内核保持在同一个层叠容器中，切换时只改变可见层。 @author long */

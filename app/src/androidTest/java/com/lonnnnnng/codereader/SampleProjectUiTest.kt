@@ -6,6 +6,7 @@ import android.view.ViewGroup
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -162,7 +163,12 @@ class SampleProjectUiTest {
         composeRule.onNodeWithText("书签列表").performClick()
         composeRule.onNodeWithText("文件书签").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("移除 Program.cs 文件书签").performClick()
-        composeRule.onNodeWithText("还没有书签").assertIsDisplayed()
+        // 书签属于持久化阅读状态；本用例只验证自己创建的 Program.cs 书签被移除，不应假设其他文件没有书签。 @author long
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithContentDescription("打开文件书签 Program.cs")
+                .fetchSemanticsNodes()
+                .isEmpty()
+        }
     }
 
     @Test

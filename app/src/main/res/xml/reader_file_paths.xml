@@ -3,4 +3,7 @@
     <files-path
         name="reader_files"
         path="." />
+    <cache-path
+        name="reader_cache"
+        path="markdown-exports/" />
 </paths>

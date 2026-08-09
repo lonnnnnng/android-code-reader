@@ -20,7 +20,9 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -180,6 +182,7 @@ fun MarkdownPreview(
     onOpenResource: (SourceEntry) -> Unit,
     onRequestSource: () -> Unit,
     onReadingPositionChanged: (String, Int) -> Unit,
+    onWebViewReady: (WebView) -> Unit,
     command: ReaderCommand?,
     active: Boolean,
     modifier: Modifier = Modifier,
@@ -192,6 +195,10 @@ fun MarkdownPreview(
     }
     val resourceIndex = remember(documentPath, projectEntries) {
         MarkdownResourceIndex(documentPath, projectEntries)
+    }
+
+    DisposableEffect(previewCache) {
+        onDispose { previewCache.destroy() }
     }
 
     LaunchedEffect(active, documentId) {
@@ -208,31 +215,34 @@ fun MarkdownPreview(
         }
     }
 
-    AndroidView(
-        modifier = modifier,
-        factory = { viewContext ->
-            FrameLayout(viewContext)
-        },
-        update = { container ->
-            val viewContext = container.context
-            binding.onOpenResource = onOpenResource
-            binding.onRequestSource = onRequestSource
-            binding.onReadingPositionChanged = onReadingPositionChanged
-            if (!active) return@AndroidView
+    key(documentId) {
+        AndroidView(
+            modifier = modifier,
+            factory = { viewContext ->
+                FrameLayout(viewContext)
+            },
+            update = { container ->
+                val viewContext = container.context
+                binding.onOpenResource = onOpenResource
+                binding.onRequestSource = onRequestSource
+                binding.onReadingPositionChanged = onReadingPositionChanged
+                if (!active) return@AndroidView
 
-            if (binding.documentId != documentId) {
-                // 先卸载旧文档的视图，再挂载目标文档；旧实例由 LRU 缓存继续保留渲染上下文。 @author long
-                container.removeAllViews()
-                binding.syncToCache()
-            }
-            val cached = previewCache.getOrCreate(documentId) { cachedDocument ->
-                createMarkdownWebView(viewContext, binding, cachedDocument)
-            }
-            cached.resourceIndex = resourceIndex
-            binding.resourceIndex = resourceIndex
-            if (binding.cachedDocument !== cached) {
-                binding.attach(cached)
+                if (binding.documentId != documentId) {
+                    // 容器随文档 ID 重建，缓存 WebView 独立保留；压力场景下不会等待旧 AndroidView 的延迟更新。 @author long
+                    container.removeAllViews()
+                    binding.syncToCache()
+                }
+                val cached = previewCache.getOrCreate(documentId) { cachedDocument ->
+                    createMarkdownWebView(viewContext, binding, cachedDocument)
+                }
+                cached.resourceIndex = resourceIndex
+                binding.resourceIndex = resourceIndex
+                if (binding.cachedDocument !== cached) {
+                    binding.attach(cached)
+                }
                 if (cached.webView.parent !== container) {
+                    // 从源码标签返回时缓存对象未变，但旧容器已经卸载；挂载判断必须独立于缓存绑定。 @author long
                     (cached.webView.parent as? ViewGroup)?.removeView(cached.webView)
                     container.addView(
                         cached.webView,
@@ -242,57 +252,55 @@ fun MarkdownPreview(
                         ),
                     )
                 }
-            }
+                onWebViewReady(cached.webView)
 
-            val contentChanged = binding.markdownText != markdownText ||
-                binding.darkTheme != darkTheme || binding.fontSizeSp != fontSizeSp ||
-                binding.backgroundColorArgb != backgroundColorArgb
-            // 命中文档缓存时不重新加载 HTML，保留 Mermaid、KaTeX、图片监听器和滚动位置。
-            if (contentChanged) {
-                val webView = cached.webView
-                container.setBackgroundColor(backgroundColorArgb)
-                val encodedMarkdown = Base64.encodeToString(markdownText.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-                val html = htmlTemplate
-                    .replace("__BODY_CLASS__", if (darkTheme) "dark" else "")
-                    .replace("__DARK_THEME__", darkTheme.toString())
-                    .replace("__FONT_SIZE__", fontSizeSp.toInt().toString())
-                    .replace("__BACKGROUND_COLOR__", "#%06X".format(backgroundColorArgb and 0x00FFFFFF))
-                    .replace("__MARKDOWN_BASE64__", encodedMarkdown)
+                val contentChanged = binding.markdownText != markdownText ||
+                    binding.darkTheme != darkTheme || binding.fontSizeSp != fontSizeSp ||
+                    binding.backgroundColorArgb != backgroundColorArgb
+                // 命中文档缓存时不重新加载 HTML，保留 Mermaid、KaTeX、图片监听器和滚动位置。
+                if (contentChanged) {
+                    val webView = cached.webView
+                    container.setBackgroundColor(backgroundColorArgb)
+                    val encodedMarkdown = Base64.encodeToString(markdownText.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+                    val html = htmlTemplate
+                        .replace("__BODY_CLASS__", if (darkTheme) "dark" else "")
+                        .replace("__DARK_THEME__", darkTheme.toString())
+                        .replace("__FONT_SIZE__", fontSizeSp.toInt().toString())
+                        .replace("__BACKGROUND_COLOR__", "#%06X".format(backgroundColorArgb and 0x00FFFFFF))
+                        .replace("__MARKDOWN_BASE64__", encodedMarkdown)
 
-                // 主题和正文一起重载，避免 WebView 保留上一份文档的 Mermaid 或 KaTeX 节点。
-                webView.setBackgroundColor(backgroundColorArgb)
-                webView.loadDataWithBaseURL(
-                    resourceIndex.documentUrl,
-                    html,
-                    "text/html",
-                    "UTF-8",
-                    null,
-                )
-                binding.markdownText = markdownText
-                binding.darkTheme = darkTheme
-                binding.fontSizeSp = fontSizeSp
-                binding.backgroundColorArgb = backgroundColorArgb
-                binding.searchQuery = null
-                binding.syncToCache()
-            }
-            val commandTargetsDocument = command?.targetDocumentId?.let { it == documentId } ?: true
-            if (command != null && commandTargetsDocument && binding.commandId != command.id) {
-                val delay = if (contentChanged) 500L else 0L
-                binding.commandId = command.id
-                cached.webView.postDelayed({
-                    if (cached.destroyed) return@postDelayed
-                    if (!cached.webView.isAttachedToWindow) return@postDelayed
-                    if (!isCurrentMarkdownCommand(binding, command, documentId)) return@postDelayed
-                    handleMarkdownCommand(cached.webView, binding, command, documentId)
-                }, delay)
-                binding.syncToCache()
-            }
-        },
-        onRelease = { container ->
-            container.removeAllViews()
-            previewCache.destroy()
-        },
-    )
+                    // 主题和正文一起重载，避免 WebView 保留上一份文档的 Mermaid 或 KaTeX 节点。
+                    webView.setBackgroundColor(backgroundColorArgb)
+                    webView.loadDataWithBaseURL(
+                        resourceIndex.documentUrl,
+                        html,
+                        "text/html",
+                        "UTF-8",
+                        null,
+                    )
+                    binding.markdownText = markdownText
+                    binding.darkTheme = darkTheme
+                    binding.fontSizeSp = fontSizeSp
+                    binding.backgroundColorArgb = backgroundColorArgb
+                    binding.searchQuery = null
+                    binding.syncToCache()
+                }
+                val commandTargetsDocument = command?.targetDocumentId?.let { it == documentId } ?: true
+                if (command != null && commandTargetsDocument && binding.commandId != command.id) {
+                    val delay = if (contentChanged) 500L else 0L
+                    binding.commandId = command.id
+                    cached.webView.postDelayed({
+                        if (cached.destroyed) return@postDelayed
+                        if (!cached.webView.isAttachedToWindow) return@postDelayed
+                        if (!isCurrentMarkdownCommand(binding, command, documentId)) return@postDelayed
+                        handleMarkdownCommand(cached.webView, binding, command, documentId)
+                    }, delay)
+                    binding.syncToCache()
+                }
+            },
+            onRelease = { container -> container.removeAllViews() },
+        )
+    }
 }
 
 @SuppressLint("SetJavaScriptEnabled")

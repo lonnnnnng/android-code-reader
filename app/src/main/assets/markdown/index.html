@@ -406,6 +406,52 @@
     let lastReportedSourceLine = null;
     let sourcePositionFrame = null;
 
+    function renderedMarkdownText() {
+      const content = document.getElementById("content");
+      if (!content) return "";
+      const clone = content.cloneNode(true);
+      clone.querySelectorAll(".copy-code, .render-source-action").forEach(function(element) {
+        element.remove();
+      });
+      // innerText 需要已参与布局的节点才能保留标题、列表和代码块换行；克隆节点放到视口外，读取后立即销毁。 @author long
+      clone.style.position = "fixed";
+      clone.style.left = "-100000px";
+      clone.style.top = "0";
+      clone.style.width = Math.max(content.clientWidth, 320) + "px";
+      clone.setAttribute("aria-hidden", "true");
+      document.body.appendChild(clone);
+      try {
+        return clone.innerText || "";
+      } finally {
+        clone.remove();
+      }
+    }
+
+    function renderedMarkdownHtml() {
+      const clone = document.documentElement.cloneNode(true);
+      // 只导出已经渲染完成的静态 DOM，移除运行时脚本和应用内操作控件，外部浏览器不会重新执行文档内容。 @author long
+      clone.querySelectorAll("script, link[rel='stylesheet'], .image-lightbox, .copy-code, .render-source-action").forEach(function(element) {
+        element.remove();
+      });
+      const sourceImages = Array.from(document.querySelectorAll("#content img"));
+      clone.querySelectorAll("#content img").forEach(function(clonedImage, index) {
+        const sourceImage = sourceImages[index];
+        if (!sourceImage || !sourceImage.complete || sourceImage.naturalWidth <= 0 || sourceImage.naturalHeight <= 0) return;
+        try {
+          // 项目图片由同源虚拟地址加载；转成 data URI 后，单个 HTML 离开 WebView 仍能完整显示。 @author long
+          const canvas = document.createElement("canvas");
+          canvas.width = sourceImage.naturalWidth;
+          canvas.height = sourceImage.naturalHeight;
+          canvas.getContext("2d").drawImage(sourceImage, 0, 0);
+          clonedImage.src = canvas.toDataURL("image/png");
+          clonedImage.removeAttribute("srcset");
+        } catch (_) {
+          // 极端尺寸或设备不支持 Canvas 时保留原地址，正文和其他导出内容仍然可用。 @author long
+        }
+      });
+      return "<!doctype html>\n" + clone.outerHTML;
+    }
+
     function decodeBase64Utf8(value) {
       const binary = atob(value);
       const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
