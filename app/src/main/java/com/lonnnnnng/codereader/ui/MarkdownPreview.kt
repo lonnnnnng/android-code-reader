@@ -16,6 +16,8 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -39,7 +41,80 @@ private class MarkdownDocumentBinding {
     @Volatile var resourceIndex: MarkdownResourceIndex? = null
     var onOpenResource: ((SourceEntry) -> Unit)? = null
     var onRequestSource: (() -> Unit)? = null
+    var cachedDocument: CachedMarkdownDocument? = null
+
+    fun attach(document: CachedMarkdownDocument) {
+        cachedDocument = document
+        documentId = document.documentId
+        markdownText = document.markdownText
+        darkTheme = document.darkTheme
+        fontSizeSp = document.fontSizeSp
+        backgroundColorArgb = document.backgroundColorArgb
+        commandId = document.commandId
+        searchQuery = document.searchQuery
+    }
+
+    fun syncToCache() {
+        val document = cachedDocument ?: return
+        document.markdownText = markdownText
+        document.darkTheme = darkTheme
+        document.fontSizeSp = fontSizeSp
+        document.backgroundColorArgb = backgroundColorArgb
+        document.commandId = commandId
+        document.searchQuery = searchQuery
+    }
 }
+
+private class CachedMarkdownDocument(
+    val documentId: String,
+) {
+    lateinit var webView: WebView
+    @Volatile var resourceIndex: MarkdownResourceIndex? = null
+    var markdownText: String? = null
+    var darkTheme: Boolean? = null
+    var fontSizeSp: Float? = null
+    var backgroundColorArgb: Int? = null
+    var commandId: Long? = null
+    var searchQuery: String? = null
+}
+
+private class MarkdownPreviewCache {
+    private val documents = LinkedHashMap<String, CachedMarkdownDocument>(0, 0.75f, true)
+
+    fun getOrCreate(
+        documentId: String,
+        createWebView: (CachedMarkdownDocument) -> WebView,
+    ): CachedMarkdownDocument {
+        documents[documentId]?.let { return it }
+        val cached = CachedMarkdownDocument(documentId)
+        cached.webView = createWebView(cached)
+        documents[documentId] = cached
+        trim(documentId)
+        return cached
+    }
+
+    fun destroy() {
+        documents.values.forEach { destroyWebView(it.webView) }
+        documents.clear()
+    }
+
+    private fun trim(currentDocumentId: String) {
+        while (documents.size > MAX_CACHED_MARKDOWN_DOCUMENTS) {
+            val eldest = documents.entries.firstOrNull { it.key != currentDocumentId } ?: return
+            documents.remove(eldest.key)
+            destroyWebView(eldest.value.webView)
+        }
+    }
+
+    private fun destroyWebView(webView: WebView) {
+        webView.stopLoading()
+        webView.removeJavascriptInterface("CodeReader")
+        webView.loadUrl("about:blank")
+        webView.destroy()
+    }
+}
+
+private const val MAX_CACHED_MARKDOWN_DOCUMENTS = 4
 
 private class MarkdownBridge(
     context: Context,
@@ -87,6 +162,7 @@ fun MarkdownPreview(
 ) {
     val context = LocalContext.current
     val binding = remember { MarkdownDocumentBinding() }
+    val previewCache = remember(context) { MarkdownPreviewCache() }
     val htmlTemplate = remember(context) {
         context.assets.open("markdown/index.html").bufferedReader().use { it.readText() }
     }
@@ -97,62 +173,45 @@ fun MarkdownPreview(
     AndroidView(
         modifier = modifier,
         factory = { viewContext ->
-            WebView(viewContext).apply {
-                setBackgroundColor(backgroundColorArgb)
-                settings.apply {
-                    javaScriptEnabled = true
-                    domStorageEnabled = false
-                    allowContentAccess = false
-                    allowFileAccess = false
-                    blockNetworkLoads = true
-                    mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-                    javaScriptCanOpenWindowsAutomatically = false
-                    setSupportMultipleWindows(false)
-                    setSupportZoom(true)
-                    builtInZoomControls = true
-                    displayZoomControls = false
-                }
-                webViewClient = object : WebViewClient() {
-                    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                        if (binding.resourceIndex?.isCurrentDocument(request.url) == true && request.url.fragment != null) {
-                            return false
-                        }
-                        val resource = binding.resourceIndex?.resolve(request.url)
-                        if (resource != null) {
-                            binding.onOpenResource?.invoke(resource)
-                            return true
-                        }
-                        return openExternalLink(view, request.url)
-                    }
-
-                    override fun shouldInterceptRequest(
-                        view: WebView,
-                        request: WebResourceRequest,
-                    ): WebResourceResponse? {
-                        return interceptMarkdownRequest(viewContext, binding.resourceIndex, request.url)
-                    }
-                }
-                addJavascriptInterface(
-                    MarkdownBridge(viewContext) { binding.onRequestSource?.invoke() },
-                    "CodeReader",
-                )
-            }
+            FrameLayout(viewContext)
         },
-        update = { webView ->
-            binding.resourceIndex = resourceIndex
+        update = { container ->
+            val viewContext = container.context
             binding.onOpenResource = onOpenResource
             binding.onRequestSource = onRequestSource
-            val documentChanged = binding.documentId != documentId
-            if (documentChanged) {
-                binding.documentId = documentId
-                binding.commandId = null
-                binding.searchQuery = null
+            if (!active) return@AndroidView
+
+            if (binding.documentId != documentId) {
+                // 先卸载旧文档的视图，再挂载目标文档；旧实例由 LRU 缓存继续保留渲染上下文。 @author long
+                container.removeAllViews()
+                binding.syncToCache()
             }
-            val contentChanged = documentChanged || binding.markdownText != markdownText ||
+            val cached = previewCache.getOrCreate(documentId) { cachedDocument ->
+                createMarkdownWebView(viewContext, binding, cachedDocument)
+            }
+            cached.resourceIndex = resourceIndex
+            binding.resourceIndex = resourceIndex
+            if (binding.cachedDocument !== cached) {
+                binding.attach(cached)
+                if (cached.webView.parent !== container) {
+                    (cached.webView.parent as? ViewGroup)?.removeView(cached.webView)
+                    container.addView(
+                        cached.webView,
+                        ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                        ),
+                    )
+                }
+            }
+
+            val contentChanged = binding.markdownText != markdownText ||
                 binding.darkTheme != darkTheme || binding.fontSizeSp != fontSizeSp ||
                 binding.backgroundColorArgb != backgroundColorArgb
-            // 隐藏预览只保留 WebView 实例，不重复执行完整 HTML 渲染；重新显示时再消费最新正文。
-            if (active && contentChanged) {
+            // 命中文档缓存时不重新加载 HTML，保留 Mermaid、KaTeX、图片监听器和滚动位置。
+            if (contentChanged) {
+                val webView = cached.webView
+                container.setBackgroundColor(backgroundColorArgb)
                 val encodedMarkdown = Base64.encodeToString(markdownText.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
                 val html = htmlTemplate
                     .replace("__BODY_CLASS__", if (darkTheme) "dark" else "")
@@ -175,23 +234,69 @@ fun MarkdownPreview(
                 binding.fontSizeSp = fontSizeSp
                 binding.backgroundColorArgb = backgroundColorArgb
                 binding.searchQuery = null
+                binding.syncToCache()
             }
             val commandTargetsDocument = command?.targetDocumentId?.let { it == documentId } ?: true
-            if (active && command != null && commandTargetsDocument && binding.commandId != command.id) {
+            if (command != null && commandTargetsDocument && binding.commandId != command.id) {
                 val delay = if (contentChanged) 500L else 0L
                 binding.commandId = command.id
-                webView.postDelayed({
+                cached.webView.postDelayed({
+                    if (!cached.webView.isAttachedToWindow) return@postDelayed
                     if (!isCurrentMarkdownCommand(binding, command, documentId)) return@postDelayed
-                    handleMarkdownCommand(webView, binding, command, documentId)
+                    handleMarkdownCommand(cached.webView, binding, command, documentId)
                 }, delay)
+                binding.syncToCache()
             }
         },
-        onRelease = { webView ->
-            webView.stopLoading()
-            webView.removeJavascriptInterface("CodeReader")
-            webView.loadUrl("about:blank")
-            webView.destroy()
+        onRelease = { container ->
+            container.removeAllViews()
+            previewCache.destroy()
         },
+    )
+}
+
+@SuppressLint("SetJavaScriptEnabled")
+private fun createMarkdownWebView(
+    viewContext: Context,
+    binding: MarkdownDocumentBinding,
+    cachedDocument: CachedMarkdownDocument,
+): WebView = WebView(viewContext).apply {
+    settings.apply {
+        javaScriptEnabled = true
+        domStorageEnabled = false
+        allowContentAccess = false
+        allowFileAccess = false
+        blockNetworkLoads = true
+        mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+        javaScriptCanOpenWindowsAutomatically = false
+        setSupportMultipleWindows(false)
+        setSupportZoom(true)
+        builtInZoomControls = true
+        displayZoomControls = false
+    }
+    webViewClient = object : WebViewClient() {
+        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+            if (cachedDocument.resourceIndex?.isCurrentDocument(request.url) == true && request.url.fragment != null) {
+                return false
+            }
+            val resource = cachedDocument.resourceIndex?.resolve(request.url)
+            if (resource != null) {
+                binding.onOpenResource?.invoke(resource)
+                return true
+            }
+            return openExternalLink(view, request.url)
+        }
+
+        override fun shouldInterceptRequest(
+            view: WebView,
+            request: WebResourceRequest,
+        ): WebResourceResponse? {
+            return interceptMarkdownRequest(viewContext, cachedDocument.resourceIndex, request.url)
+        }
+    }
+    addJavascriptInterface(
+        MarkdownBridge(viewContext) { binding.onRequestSource?.invoke() },
+        "CodeReader",
     )
 }
 

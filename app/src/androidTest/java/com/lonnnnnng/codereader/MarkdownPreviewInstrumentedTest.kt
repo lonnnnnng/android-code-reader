@@ -5,6 +5,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasStateDescription
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -17,6 +18,7 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.rosemoe.sora.widget.CodeEditor
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -192,21 +194,49 @@ class MarkdownPreviewInstrumentedTest {
     }
 
     @Test
-    fun switchingBetweenMarkdownTabsReusesPreviewWebView() {
+    fun switchingBetweenMarkdownTabsReusesPerDocumentPreviewCache() {
         openMarkdownDocument()
         val webViewBefore = waitForWebView()
         waitForMarkdown(webViewBefore)
+        val scrollBefore = evaluate(webViewBefore, "window.scrollTo(0, 480); window.scrollY").toInt()
+        assertTrue("缓存测试文档应能滚动", scrollBefore > 0)
 
         composeRule.onNodeWithContentDescription("快速切换文件").performClick()
         composeRule.onNodeWithContentDescription("打开 demo/README.md").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithContentDescription("关闭 README.md").fetchSemanticsNodes().size >= 2
+        }
         val webViewAfterOpen = waitForWebView()
         waitForMarkdown(webViewAfterOpen)
-        assertSame("打开第二个 Markdown 标签不应销毁 WebView", webViewBefore, webViewAfterOpen)
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            evaluate(webViewAfterOpen, "document.body.textContent.includes('Demo 模块') === true") == "true"
+        }
+        assertNotSame(
+            "不同 Markdown 文档应使用独立缓存 WebView",
+            webViewBefore,
+            webViewAfterOpen,
+        )
 
         assertEquals(
             "第二个 Markdown 标签打开后应完成渲染",
             "\"true\"",
             evaluate(webViewAfterOpen, "document.documentElement.dataset.markdownReady || ''"),
+        )
+
+        composeRule.onNode(hasText("README.md") and hasStateDescription("未选中文件")).performClick()
+        composeRule.waitForIdle()
+        SystemClock.sleep(300)
+        val webViewAfterReturn = waitForWebView()
+        assertSame("切回已访问 Markdown 文档应复用原 WebView", webViewBefore, webViewAfterReturn)
+        assertEquals(
+            "切回缓存文档后渲染状态应保持完成",
+            "\"true\"",
+            evaluate(webViewAfterReturn, "document.documentElement.dataset.markdownReady || ''"),
+        )
+        assertEquals(
+            "切回缓存文档后应保留原滚动位置",
+            scrollBefore,
+            evaluate(webViewAfterReturn, "window.scrollY").toInt(),
         )
     }
 
