@@ -15,7 +15,9 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.lifecycle.ViewModelProvider
 import androidx.test.platform.app.InstrumentationRegistry
+import com.lonnnnnng.codereader.ui.ReaderViewModel
 import io.github.rosemoe.sora.widget.CodeEditor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotSame
@@ -175,6 +177,78 @@ class MarkdownPreviewInstrumentedTest {
     }
 
     @Test
+    fun sourceAndPreviewKeepTheSameReadingPosition() {
+        val sourceMathLine = 107
+        val previewCodeLine = 63
+        val semanticBlockTolerance = 6
+        openMarkdownDocument()
+        val webView = waitForWebView()
+        waitForMarkdown(webView)
+
+        composeRule.onNodeWithContentDescription("查看源码").performClick()
+        val editor = waitForCodeEditor()
+        SystemClock.sleep(350)
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            editor.setSelection(sourceMathLine - 1, 0)
+            editor.ensurePositionVisible(sourceMathLine - 1, 0, true)
+        }
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            editor.firstVisibleLine <= sourceMathLine - 1 && editor.lastVisibleLine >= sourceMathLine - 1
+        }
+        val viewModel = ViewModelProvider(composeRule.activity)[ReaderViewModel::class.java]
+        val documentId = requireNotNull(viewModel.state.value.activeTabId)
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            // 程序化滚动不会产生用户 ScrollEvent，直接调用同一回调以验证两个阅读内核的同步契约。 @author long
+            viewModel.updateReadingPosition(documentId, sourceMathLine)
+            viewModel.toggleMarkdownPreview()
+        }
+        composeRule.waitForIdle()
+
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithContentDescription("查看源码").fetchSemanticsNodes().isNotEmpty()
+        }
+        waitForMarkdown(webView)
+        val previewLineFromSource = waitForPreviewSourceLine(webView, sourceMathLine, semanticBlockTolerance)
+        val sourceTargetLine = evaluate(
+            webView,
+            "Number(document.documentElement.dataset.sourceTargetLine || -1)",
+        ).toInt()
+        assertTrue(
+            "从源码切到预览后应定位到第 $sourceMathLine 行附近，WebView 收到目标行 $sourceTargetLine，实际为第 $previewLineFromSource 行",
+            previewLineFromSource in (sourceMathLine - semanticBlockTolerance)..(sourceMathLine + semanticBlockTolerance),
+        )
+
+        assertEquals(
+            "预览应提供按源码行定位的接口",
+            "true",
+            evaluate(
+                webView,
+                "typeof scrollToSourceLine === 'function' && (scrollToSourceLine($previewCodeLine), true)",
+            ),
+        )
+        val previewLineAfterScroll = waitForPreviewSourceLine(webView, previewCodeLine, semanticBlockTolerance)
+        assertTrue(
+            "预览滚动后应定位到第 $previewCodeLine 行附近，实际为第 $previewLineAfterScroll 行",
+            previewLineAfterScroll in (previewCodeLine - semanticBlockTolerance)..(previewCodeLine + semanticBlockTolerance),
+        )
+        SystemClock.sleep(300)
+
+        composeRule.onNodeWithContentDescription("查看源码").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            editor.firstVisibleLine <= previewCodeLine - 1 && editor.lastVisibleLine >= previewCodeLine - 1
+        }
+        assertTrue(
+            "从预览切回源码后应让第 $previewCodeLine 行保持可见",
+            editor.firstVisibleLine <= previewCodeLine - 1 && editor.lastVisibleLine >= previewCodeLine - 1,
+        )
+        // 该测试类复用 Activity 状态，结束时恢复预览模式，避免后续用例继承源码视图。 @author long
+        composeRule.onNodeWithContentDescription("预览 Markdown").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithContentDescription("查看源码").fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    @Test
     fun switchingFromSourceTabBackToMarkdownKeepsPreviewWebViewAlive() {
         openSourceDocument("app.js")
         openMarkdownDocumentFromHome()
@@ -198,8 +272,10 @@ class MarkdownPreviewInstrumentedTest {
         openMarkdownDocument()
         val webViewBefore = waitForWebView()
         waitForMarkdown(webViewBefore)
-        val scrollBefore = evaluate(webViewBefore, "window.scrollTo(0, 480); window.scrollY").toInt()
+        val scrollBefore = evaluate(webViewBefore, "window.scrollTo(0, 480); window.scrollY").toDouble()
         assertTrue("缓存测试文档应能滚动", scrollBefore > 0)
+        SystemClock.sleep(300)
+        val sourceLineBefore = currentPreviewSourceLine(webViewBefore)
 
         composeRule.onNodeWithContentDescription("快速切换文件").performClick()
         composeRule.onNodeWithContentDescription("打开 demo/README.md").performClick()
@@ -233,11 +309,12 @@ class MarkdownPreviewInstrumentedTest {
             "\"true\"",
             evaluate(webViewAfterReturn, "document.documentElement.dataset.markdownReady || ''"),
         )
-        assertEquals(
-            "切回缓存文档后应保留原滚动位置",
-            scrollBefore,
-            evaluate(webViewAfterReturn, "window.scrollY").toInt(),
+        val sourceLineAfter = waitForPreviewSourceLine(webViewAfterReturn, sourceLineBefore, 6)
+        assertTrue(
+            "切回缓存文档后应保留同一语义阅读位置，切换前第 $sourceLineBefore 行，切换后第 $sourceLineAfter 行",
+            sourceLineAfter in (sourceLineBefore - 6)..(sourceLineBefore + 6),
         )
+        assertTrue("切回缓存文档后不应重置到顶部", evaluate(webViewAfterReturn, "window.scrollY").toDouble() > 0)
     }
 
     private fun openMarkdownDocument(name: String = "README.md") {
@@ -247,6 +324,7 @@ class MarkdownPreviewInstrumentedTest {
         }
         composeRule.onNodeWithTag("project-list").performScrollToNode(hasText(name))
         composeRule.onNodeWithText(name).performClick()
+        ensureMarkdownPreviewVisible()
     }
 
     private fun openSourceDocument(name: String) {
@@ -266,16 +344,38 @@ class MarkdownPreviewInstrumentedTest {
             composeRule.onAllNodesWithTag("project-list").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText("Markdown示例.md").performClick()
+        ensureMarkdownPreviewVisible()
+    }
+
+    private fun ensureMarkdownPreviewVisible() {
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithContentDescription("查看源码").fetchSemanticsNodes().isNotEmpty() ||
+                composeRule.onAllNodesWithContentDescription("预览 Markdown").fetchSemanticsNodes().isNotEmpty()
+        }
+        if (composeRule.onAllNodesWithContentDescription("预览 Markdown").fetchSemanticsNodes().isNotEmpty()) {
+            composeRule.onNodeWithContentDescription("预览 Markdown").performClick()
+        }
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithContentDescription("查看源码").fetchSemanticsNodes().isNotEmpty()
+        }
     }
 
     private fun waitForWebView(): WebView {
         var result: WebView? = null
-        composeRule.waitUntil(timeoutMillis = 10_000) {
-            InstrumentationRegistry.getInstrumentation().runOnMainSync {
-                result = findWebView(composeRule.activity.findViewById(android.R.id.content))
+        val completed = runCatching {
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                    result = findWebView(composeRule.activity.findViewById(android.R.id.content))
+                }
+                result != null
             }
-            result != null
-        }
+        }.isSuccess
+        val state = ViewModelProvider(composeRule.activity)[ReaderViewModel::class.java].state.value
+        assertTrue(
+            "未找到 Markdown WebView：screen=${state.screen}, document=${state.document?.name}, " +
+                "preview=${state.markdownPreview}, tabs=${state.tabs.map { it.document.name }}, failure=${state.failure?.detail}",
+            completed && result != null,
+        )
         return requireNotNull(result)
     }
 
@@ -293,17 +393,42 @@ class MarkdownPreviewInstrumentedTest {
     private fun waitForMarkdown(webView: WebView) {
         val deadline = SystemClock.elapsedRealtime() + 20_000
         var state = ""
+        var errorText = ""
         while (SystemClock.elapsedRealtime() < deadline) {
             state = evaluate(webView, "document.documentElement.dataset.markdownReady || ''")
             if (state == "\"true\"") return
-            if (state == "\"error\"") break
+            if (state == "\"error\"") {
+                errorText = evaluate(
+                    webView,
+                    "document.querySelector('#content > .render-error:last-child')?.textContent || ''",
+                )
+                break
+            }
             SystemClock.sleep(100)
         }
-        assertEquals("Markdown WebView 未完成渲染", "\"true\"", state)
+        assertEquals("Markdown WebView 未完成渲染：$errorText", "\"true\"", state)
     }
 
     private fun domCount(webView: WebView, selector: String): Int {
         return evaluate(webView, "document.querySelectorAll(${selector.jsQuoted()}).length").toInt()
+    }
+
+    private fun currentPreviewSourceLine(webView: WebView): Int {
+        return evaluate(
+            webView,
+            "typeof currentSourceLine === 'function' ? currentSourceLine() : -1",
+        ).toInt()
+    }
+
+    private fun waitForPreviewSourceLine(webView: WebView, expectedLine: Int, tolerance: Int): Int {
+        val deadline = SystemClock.elapsedRealtime() + 10_000
+        var actualLine = -1
+        while (SystemClock.elapsedRealtime() < deadline) {
+            actualLine = currentPreviewSourceLine(webView)
+            if (actualLine in (expectedLine - tolerance)..(expectedLine + tolerance)) return actualLine
+            SystemClock.sleep(100)
+        }
+        return actualLine
     }
 
     private fun evaluate(webView: WebView, script: String): String {

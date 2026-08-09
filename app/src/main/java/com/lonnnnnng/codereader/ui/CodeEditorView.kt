@@ -211,6 +211,8 @@ private fun handleEditorCommand(
                 if (!isCurrentEditorCommand(binding, command, documentId)) return@postDelayed
                 val line = (command.line - 1).coerceIn(0, (editor.lineCount - 1).coerceAtLeast(0))
                 editor.setSelection(line, 0, true)
+                // Sora 的光标更新和滚动是两条路径，显式确保目标行可见才能稳定承接 Markdown 预览位置。 @author long
+                editor.ensurePositionVisible(line, 0, true)
             }, 250)
         }
         ReaderCommandType.GOTO_SEARCH_MATCH -> {

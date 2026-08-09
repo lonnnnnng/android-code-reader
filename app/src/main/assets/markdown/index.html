@@ -401,6 +401,10 @@
   <script>
     const darkTheme = __DARK_THEME__;
     const markdownBase64 = "__MARKDOWN_BASE64__";
+    let markdownLineCount = 1;
+    let pendingSourceLine = null;
+    let lastReportedSourceLine = null;
+    let sourcePositionFrame = null;
 
     function decodeBase64Utf8(value) {
       const binary = atob(value);
@@ -419,18 +423,21 @@
     function extractFrontMatter(markdown) {
       // 仅识别文档起始且完整闭合的元数据区，普通正文分隔线仍交给 Markdown 渲染。 @author long
       const match = markdown.match(/^(?:\uFEFF)?---[ \t]*\r?\n([\s\S]*?)\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/);
-      if (!match) return { source: markdown, yaml: null };
+      if (!match) return { source: markdown, yaml: null, lineOffset: 0 };
       return {
         source: markdown.slice(match[0].length),
-        yaml: match[1]
+        yaml: match[1],
+        lineOffset: (match[0].match(/\n/g) || []).length
       };
     }
 
-    function installFrontMatter(container, yaml) {
+    function installFrontMatter(container, yaml, lineOffset) {
       if (yaml === null) return;
 
       const details = document.createElement("details");
       details.className = "front-matter";
+      details.dataset.sourceStart = "1";
+      details.dataset.sourceEnd = String(Math.max(1, lineOffset));
 
       const summary = document.createElement("summary");
       summary.textContent = "YAML Front Matter";
@@ -572,27 +579,134 @@
       if (heading) heading.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
+    function sourceRangeAttributes(token, lineOffset) {
+      if (!token.map) return "";
+      const start = token.map[0] + lineOffset + 1;
+      const end = Math.max(start, token.map[1] + lineOffset);
+      return ' data-source-start="' + start + '" data-source-end="' + end + '"';
+    }
+
+    function installSourceRanges(tokens, lineOffset) {
+      // markdown-it 的 block token 自带源码行区间，把它写入 DOM 后，两种阅读内核才能按语义块互相定位。 @author long
+      tokens.forEach(function(token) {
+        if (!token.map || (token.nesting !== 1 && token.type !== "hr")) return;
+        token.attrSet("data-source-start", String(token.map[0] + lineOffset + 1));
+        token.attrSet("data-source-end", String(Math.max(token.map[0] + lineOffset + 1, token.map[1] + lineOffset)));
+      });
+    }
+
+    function sourceBlocks() {
+      return Array.from(document.querySelectorAll("#content [data-source-start]"));
+    }
+
+    function sourceRange(element) {
+      const start = Number(element.dataset.sourceStart || 1);
+      const end = Number(element.dataset.sourceEnd || start);
+      return { start: start, end: Math.max(start, end) };
+    }
+
+    function sourceBlockForLine(line) {
+      const blocks = sourceBlocks();
+      const containing = blocks.filter(function(element) {
+        const range = sourceRange(element);
+        return range.start <= line && range.end >= line;
+      });
+      if (containing.length) {
+        return containing.reduce(function(best, element) {
+          const bestRange = sourceRange(best);
+          const range = sourceRange(element);
+          return (range.end - range.start) <= (bestRange.end - bestRange.start) ? element : best;
+        });
+      }
+      return blocks.reduce(function(best, element) {
+        if (!best) return element;
+        return Math.abs(sourceRange(element).start - line) < Math.abs(sourceRange(best).start - line) ? element : best;
+      }, null);
+    }
+
+    function currentSourceLine() {
+      const blocks = sourceBlocks();
+      if (!blocks.length) {
+        const scrollable = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+        return Math.max(1, Math.round((window.scrollY / scrollable) * Math.max(0, markdownLineCount - 1)) + 1);
+      }
+      const anchor = Math.min(120, Math.max(48, window.innerHeight * 0.18));
+      let best = null;
+      let bestDistance = Number.POSITIVE_INFINITY;
+      blocks.forEach(function(element) {
+        const rect = element.getBoundingClientRect();
+        const distance = rect.top <= anchor && rect.bottom >= anchor
+          ? 0
+          : Math.min(Math.abs(rect.top - anchor), Math.abs(rect.bottom - anchor));
+        if (distance < bestDistance) {
+          best = element;
+          bestDistance = distance;
+        } else if (distance === bestDistance && best) {
+          const range = sourceRange(element);
+          const bestRange = sourceRange(best);
+          if ((range.end - range.start) < (bestRange.end - bestRange.start)) best = element;
+        }
+      });
+      return best ? sourceRange(best).start : 1;
+    }
+
+    function reportCurrentSourceLine() {
+      const line = currentSourceLine();
+      if (line === lastReportedSourceLine) return;
+      lastReportedSourceLine = line;
+      if (window.CodeReader && window.CodeReader.reportReadingPosition) {
+        window.CodeReader.reportReadingPosition(line);
+      }
+    }
+
+    function scheduleSourcePositionReport() {
+      if (sourcePositionFrame !== null) return;
+      sourcePositionFrame = window.requestAnimationFrame(function() {
+        sourcePositionFrame = null;
+        reportCurrentSourceLine();
+      });
+    }
+
+    function scrollToSourceLine(line) {
+      const normalizedLine = Math.max(1, Math.min(markdownLineCount, Number(line) || 1));
+      pendingSourceLine = normalizedLine;
+      document.documentElement.dataset.sourceTargetLine = String(normalizedLine);
+      const target = sourceBlockForLine(normalizedLine);
+      if (target) {
+        target.scrollIntoView({ behavior: "auto", block: "start" });
+      } else {
+        const ratio = (normalizedLine - 1) / Math.max(1, markdownLineCount - 1);
+        const scrollable = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+        window.scrollTo(0, scrollable * ratio);
+      }
+      if (document.documentElement.dataset.markdownReady === "true") pendingSourceLine = null;
+      scheduleSourcePositionReport();
+    }
+
+    function installSourcePositionReporting() {
+      // 滚动一帧只回传一次语义行，并由原生层再次按行去重，避免拖动时频繁刷新 Compose。 @author long
+      window.addEventListener("scroll", scheduleSourcePositionReport, { passive: true });
+    }
+
     function extractMathBlocks(markdown) {
       const blocks = [];
-      const source = markdown.replace(/^\s*\$\$\s*$\n([\s\S]*?)\n^\s*\$\$\s*$/gm, function(_, formula) {
+      const source = markdown.replace(/^[ \t]*\$\$[ \t]*\r?\n([\s\S]*?)\r?\n^[ \t]*\$\$[ \t]*$/gm, function(matched, formula) {
         const marker = "CODE_READER_MATH_BLOCK_" + blocks.length + "_END";
         blocks.push({ marker: marker, formula: formula });
-        return "\n\n" + marker + "\n\n";
+        // 占位文本保持原公式块的换行数量，后续 token.map 才仍对应原始 Markdown 行号。 @author long
+        return marker + "\n".repeat((matched.match(/\n/g) || []).length);
       });
       return { source: source, blocks: blocks };
     }
 
     function renderExtractedMathBlocks(container, blocks) {
       if (!blocks.length) return;
-      const textNodes = [];
-      const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-      while (walker.nextNode()) textNodes.push(walker.currentNode);
 
       blocks.forEach(function(block) {
-        const textNode = textNodes.find(function(node) {
-          return node.nodeValue.trim() === block.marker;
+        const parent = Array.from(container.querySelectorAll("p")).find(function(element) {
+          return element.textContent.trim() === block.marker;
         });
-        if (!textNode) throw new Error("找不到块级公式占位符：" + block.marker);
+        if (!parent) throw new Error("找不到块级公式占位符：" + block.marker);
 
         let host = document.createElement("div");
         host.className = "math-block";
@@ -609,12 +723,9 @@
           );
         }
 
-        const parent = textNode.parentElement;
-        if (parent && parent.tagName === "P" && parent.textContent.trim() === block.marker) {
-          parent.replaceWith(host);
-        } else {
-          textNode.replaceWith(host);
-        }
+        host.dataset.sourceStart = parent.dataset.sourceStart || "";
+        host.dataset.sourceEnd = parent.dataset.sourceEnd || host.dataset.sourceStart;
+        parent.replaceWith(host);
       });
     }
 
@@ -622,6 +733,7 @@
       const content = document.getElementById("content");
       try {
         const markdown = decodeBase64Utf8(markdownBase64);
+        markdownLineCount = markdown.split(/\r?\n/).length;
         const frontMatter = extractFrontMatter(markdown);
         const extractedMath = extractMathBlocks(frontMatter.source);
         const markdownRenderer = window.markdownit({
@@ -637,16 +749,19 @@
         markdownRenderer.renderer.rules.fence = function(tokens, index, options, environment, renderer) {
           const token = tokens[index];
           const language = token.info.trim().split(/\s+/)[0].toLowerCase();
+          const sourceAttributes = sourceRangeAttributes(token, frontMatter.lineOffset);
           if (language === "mermaid") {
-            return '<div class="diagram-shell"><div class="mermaid">' +
+            return '<div class="diagram-shell"' + sourceAttributes + '><div class="mermaid">' +
               markdownRenderer.utils.escapeHtml(token.content) +
               '</div></div>';
           }
-          return defaultFence(tokens, index, options, environment, renderer);
+          return defaultFence(tokens, index, options, environment, renderer).replace("<pre", "<pre" + sourceAttributes);
         };
 
-        content.innerHTML = markdownRenderer.render(extractedMath.source);
-        installFrontMatter(content, frontMatter.yaml);
+        const tokens = markdownRenderer.parse(extractedMath.source, {});
+        installSourceRanges(tokens, frontMatter.lineOffset);
+        content.innerHTML = markdownRenderer.renderer.render(tokens, markdownRenderer.options, {});
+        installFrontMatter(content, frontMatter.yaml, frontMatter.lineOffset);
         installHeadingAnchors(content);
         installCodeCopyButtons(content);
         installImageLightbox(content);
@@ -682,6 +797,9 @@
         });
         await renderMermaidDiagrams(content);
         document.documentElement.dataset.markdownReady = "true";
+        installSourcePositionReporting();
+        if (pendingSourceLine !== null) scrollToSourceLine(pendingSourceLine);
+        else reportCurrentSourceLine();
       } catch (error) {
         content.insertAdjacentHTML(
           "beforeend",

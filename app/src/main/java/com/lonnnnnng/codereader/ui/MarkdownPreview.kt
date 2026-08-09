@@ -20,6 +20,7 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -29,6 +30,7 @@ import com.lonnnnnng.codereader.model.ProjectTreeEntry
 import com.lonnnnnng.codereader.model.SourceEntry
 import java.io.ByteArrayInputStream
 import java.io.FileNotFoundException
+import kotlinx.coroutines.delay
 
 private class MarkdownDocumentBinding {
     var documentId: String? = null
@@ -41,6 +43,7 @@ private class MarkdownDocumentBinding {
     @Volatile var resourceIndex: MarkdownResourceIndex? = null
     var onOpenResource: ((SourceEntry) -> Unit)? = null
     var onRequestSource: (() -> Unit)? = null
+    var onReadingPositionChanged: ((String, Int) -> Unit)? = null
     var cachedDocument: CachedMarkdownDocument? = null
 
     fun attach(document: CachedMarkdownDocument) {
@@ -69,6 +72,7 @@ private class CachedMarkdownDocument(
     val documentId: String,
 ) {
     lateinit var webView: WebView
+    @Volatile var destroyed: Boolean = false
     @Volatile var resourceIndex: MarkdownResourceIndex? = null
     var markdownText: String? = null
     var darkTheme: Boolean? = null
@@ -76,6 +80,7 @@ private class CachedMarkdownDocument(
     var backgroundColorArgb: Int? = null
     var commandId: Long? = null
     var searchQuery: String? = null
+    var pendingSourceLine: Int? = null
 }
 
 private class MarkdownPreviewCache {
@@ -94,7 +99,7 @@ private class MarkdownPreviewCache {
     }
 
     fun destroy() {
-        documents.values.forEach { destroyWebView(it.webView) }
+        documents.values.forEach(::destroyDocument)
         documents.clear()
     }
 
@@ -102,14 +107,21 @@ private class MarkdownPreviewCache {
         while (documents.size > MAX_CACHED_MARKDOWN_DOCUMENTS) {
             val eldest = documents.entries.firstOrNull { it.key != currentDocumentId } ?: return
             documents.remove(eldest.key)
-            destroyWebView(eldest.value.webView)
+            destroyDocument(eldest.value)
         }
     }
 
-    private fun destroyWebView(webView: WebView) {
+    private fun destroyDocument(document: CachedMarkdownDocument) {
+        // 先让所有页面完成、延迟命令和 JavaScript 回调失效，再销毁 WebView，避免旧文档消费待定位行。 @author long
+        document.destroyed = true
+        document.pendingSourceLine = null
+        document.resourceIndex = null
+        val webView = document.webView
         webView.stopLoading()
         webView.removeJavascriptInterface("CodeReader")
-        webView.loadUrl("about:blank")
+        webView.webViewClient = WebViewClient()
+        (webView.parent as? ViewGroup)?.removeView(webView)
+        webView.removeAllViews()
         webView.destroy()
     }
 }
@@ -118,7 +130,9 @@ private const val MAX_CACHED_MARKDOWN_DOCUMENTS = 4
 
 private class MarkdownBridge(
     context: Context,
+    private val documentId: String,
     private val onRequestSource: () -> Unit,
+    private val onReadingPositionChanged: (String, Int) -> Unit,
 ) {
     private val appContext = context.applicationContext
 
@@ -137,6 +151,14 @@ private class MarkdownBridge(
     fun showSource() {
         Handler(Looper.getMainLooper()).post(onRequestSource)
     }
+
+    /** WebView 只回传内置页面计算出的源码行，持久化和跨视图跳转仍由原生阅读状态统一管理。 @author long */
+    @JavascriptInterface
+    fun reportReadingPosition(line: Int) {
+        Handler(Looper.getMainLooper()).post {
+            onReadingPositionChanged(documentId, line.coerceAtLeast(1))
+        }
+    }
 }
 
 /**
@@ -152,10 +174,12 @@ fun MarkdownPreview(
     darkTheme: Boolean,
     fontSizeSp: Float,
     backgroundColorArgb: Int,
+    sourceLine: Int,
     documentPath: String,
     projectEntries: List<ProjectTreeEntry>,
     onOpenResource: (SourceEntry) -> Unit,
     onRequestSource: () -> Unit,
+    onReadingPositionChanged: (String, Int) -> Unit,
     command: ReaderCommand?,
     active: Boolean,
     modifier: Modifier = Modifier,
@@ -170,6 +194,20 @@ fun MarkdownPreview(
         MarkdownResourceIndex(documentPath, projectEntries)
     }
 
+    LaunchedEffect(active, documentId) {
+        if (!active) return@LaunchedEffect
+        val targetSourceLine = sourceLine.coerceAtLeast(1)
+        // AndroidView 的 update 可能晚于组合层执行；持续等待缓存项出现，切换文档或离开页面时协程会自动取消。 @author long
+        while (true) {
+            val cached = binding.cachedDocument?.takeIf { it.documentId == documentId }
+            if (cached != null && !cached.destroyed) {
+                requestMarkdownSourceLine(cached.webView, cached, targetSourceLine)
+                return@LaunchedEffect
+            }
+            delay(50)
+        }
+    }
+
     AndroidView(
         modifier = modifier,
         factory = { viewContext ->
@@ -179,6 +217,7 @@ fun MarkdownPreview(
             val viewContext = container.context
             binding.onOpenResource = onOpenResource
             binding.onRequestSource = onRequestSource
+            binding.onReadingPositionChanged = onReadingPositionChanged
             if (!active) return@AndroidView
 
             if (binding.documentId != documentId) {
@@ -241,6 +280,7 @@ fun MarkdownPreview(
                 val delay = if (contentChanged) 500L else 0L
                 binding.commandId = command.id
                 cached.webView.postDelayed({
+                    if (cached.destroyed) return@postDelayed
                     if (!cached.webView.isAttachedToWindow) return@postDelayed
                     if (!isCurrentMarkdownCommand(binding, command, documentId)) return@postDelayed
                     handleMarkdownCommand(cached.webView, binding, command, documentId)
@@ -275,6 +315,13 @@ private fun createMarkdownWebView(
         displayZoomControls = false
     }
     webViewClient = object : WebViewClient() {
+        override fun onPageFinished(view: WebView, url: String?) {
+            if (cachedDocument.destroyed) return
+            cachedDocument.pendingSourceLine?.let { line ->
+                requestMarkdownSourceLine(view, cachedDocument, line)
+            }
+        }
+
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
             if (cachedDocument.resourceIndex?.isCurrentDocument(request.url) == true && request.url.fragment != null) {
                 return false
@@ -295,9 +342,34 @@ private fun createMarkdownWebView(
         }
     }
     addJavascriptInterface(
-        MarkdownBridge(viewContext) { binding.onRequestSource?.invoke() },
+        MarkdownBridge(
+            context = viewContext,
+            documentId = cachedDocument.documentId,
+            onRequestSource = { binding.onRequestSource?.invoke() },
+            onReadingPositionChanged = { documentId, line ->
+                binding.onReadingPositionChanged?.invoke(documentId, line)
+            },
+        ),
         "CodeReader",
     )
+}
+
+private fun requestMarkdownSourceLine(
+    webView: WebView,
+    cachedDocument: CachedMarkdownDocument,
+    line: Int,
+) {
+    if (cachedDocument.destroyed) return
+    val normalizedLine = line.coerceAtLeast(1)
+    cachedDocument.pendingSourceLine = normalizedLine
+    webView.evaluateJavascript(
+        "(function(){if(typeof scrollToSourceLine !== 'function')return false;scrollToSourceLine($normalizedLine);return true;})()",
+    ) { applied ->
+        if (cachedDocument.destroyed) return@evaluateJavascript
+        if (applied == "true" && cachedDocument.pendingSourceLine == normalizedLine) {
+            cachedDocument.pendingSourceLine = null
+        }
+    }
 }
 
 private fun handleMarkdownCommand(
@@ -327,7 +399,10 @@ private fun handleMarkdownCommand(
         ReaderCommandType.MARKDOWN_HEADING -> {
             webView.evaluateJavascript("scrollToHeading(${command.headingIndex})", null)
         }
-        ReaderCommandType.GOTO_LINE,
+        ReaderCommandType.GOTO_LINE -> {
+            // 源码与预览共用 1-based 行号命令，DOM 会优先定位到覆盖该行的最小语义块。 @author long
+            webView.evaluateJavascript("scrollToSourceLine(${command.line.coerceAtLeast(1)})", null)
+        }
         ReaderCommandType.GOTO_SEARCH_MATCH -> Unit
     }
 }

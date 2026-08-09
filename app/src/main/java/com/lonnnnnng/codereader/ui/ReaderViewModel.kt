@@ -825,9 +825,24 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun toggleMarkdownPreview() {
-        val documentId = _state.value.activeTabId
+        val documentId = _state.value.activeTabId ?: return
         if (fileSearchDocumentId == documentId) cancelFileSearchTask(clearState = true)
-        updateActiveTab { it.copy(markdownPreview = !it.markdownPreview) }
+        _state.update { current ->
+            val tab = current.tabs.firstOrNull { it.document.id == documentId } ?: return@update current
+            if (!tab.document.fileType.markdown) return@update current
+            // 两个阅读内核在切换瞬间都消费同一行号：预览定位语义块，Sora 保证该源码行进入可见区域。 @author long
+            current.copy(
+                tabs = current.tabs.map {
+                    if (it.document.id == documentId) it.copy(markdownPreview = !it.markdownPreview) else it
+                },
+                readerCommand = ReaderCommand(
+                    id = commandIds.incrementAndGet(),
+                    type = ReaderCommandType.GOTO_LINE,
+                    line = tab.currentLine,
+                    targetDocumentId = documentId,
+                ),
+            )
+        }
     }
 
     fun searchInFile(
