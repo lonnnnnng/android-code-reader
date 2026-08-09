@@ -1,3 +1,12 @@
+---
+title: Markdown 综合能力验证
+category: Android 阅读器
+tags:
+  - markdown
+  - compose
+verified: true
+---
+
 # Markdown 综合能力验证
 
 > 这份文档用于验证灵阅的常用 Markdown、代码高亮、数学公式和 Mermaid 流程图。

@@ -67,4 +67,27 @@ class MarkdownOutlineParserTest {
             MarkdownOutlineParser.parse(markdown),
         )
     }
+
+    @Test
+    fun `YAML Front Matter 不会污染正文目录`() {
+        val markdown = """
+            ---
+            title: 项目说明
+            tags:
+              - android
+              - markdown
+            verified: true
+            ---
+            # 正文标题
+            ## 安装
+        """.trimIndent()
+
+        assertEquals(
+            listOf(
+                MarkdownHeading(0, 1, "正文标题"),
+                MarkdownHeading(1, 2, "安装"),
+            ),
+            MarkdownOutlineParser.parse(markdown),
+        )
+    }
 }

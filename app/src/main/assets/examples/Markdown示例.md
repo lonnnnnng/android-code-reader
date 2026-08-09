@@ -1,3 +1,13 @@
+---
+title: Markdown 功能示例
+category: 灵阅内置文档
+features:
+  - syntax-highlight
+  - math
+  - mermaid
+verified: true
+---
+
 # Markdown 功能示例
 
 这份文档展示灵阅支持的常用 Markdown 能力，所有内容均可离线渲染。

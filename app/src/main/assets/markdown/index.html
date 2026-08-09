@@ -225,6 +225,34 @@
       font-size: 0.9em;
     }
 
+    .front-matter {
+      margin: 0 0 1.25em;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+    }
+
+    .front-matter > summary {
+      padding: 10px 12px;
+      color: var(--muted);
+      font-size: 0.9em;
+      font-weight: 700;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .front-matter[open] > summary {
+      border-bottom: 1px solid var(--border);
+    }
+
+    .front-matter pre {
+      margin: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+    }
+
     .diagram-shell {
       padding: 12px;
       overflow-x: auto;
@@ -329,6 +357,36 @@
       return hljs.highlightAuto(code).value;
     }
 
+    function extractFrontMatter(markdown) {
+      // 仅识别文档起始且完整闭合的元数据区，普通正文分隔线仍交给 Markdown 渲染。 @author long
+      const match = markdown.match(/^(?:\uFEFF)?---[ \t]*\r?\n([\s\S]*?)\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/);
+      if (!match) return { source: markdown, yaml: null };
+      return {
+        source: markdown.slice(match[0].length),
+        yaml: match[1]
+      };
+    }
+
+    function installFrontMatter(container, yaml) {
+      if (yaml === null) return;
+
+      const details = document.createElement("details");
+      details.className = "front-matter";
+
+      const summary = document.createElement("summary");
+      summary.textContent = "YAML Front Matter";
+      details.appendChild(summary);
+
+      const pre = document.createElement("pre");
+      const code = document.createElement("code");
+      code.className = "language-yaml hljs";
+      // highlight.js 会先转义 YAML，避免元数据内容作为 HTML 注入预览。 @author long
+      code.innerHTML = highlightedCode(yaml, "yaml");
+      pre.appendChild(code);
+      details.appendChild(pre);
+      container.prepend(details);
+    }
+
     function installHeadingAnchors(container) {
       container.querySelectorAll("h1, h2, h3, h4, h5, h6").forEach(function(heading, index) {
         heading.id = "heading-" + index;
@@ -397,7 +455,8 @@
       const content = document.getElementById("content");
       try {
         const markdown = decodeBase64Utf8(markdownBase64);
-        const extractedMath = extractMathBlocks(markdown);
+        const frontMatter = extractFrontMatter(markdown);
+        const extractedMath = extractMathBlocks(frontMatter.source);
         const markdownRenderer = window.markdownit({
           html: false,
           linkify: true,
@@ -420,6 +479,7 @@
         };
 
         content.innerHTML = markdownRenderer.render(extractedMath.source);
+        installFrontMatter(content, frontMatter.yaml);
         installHeadingAnchors(content);
         installCodeCopyButtons(content);
         renderExtractedMathBlocks(content, extractedMath.blocks);

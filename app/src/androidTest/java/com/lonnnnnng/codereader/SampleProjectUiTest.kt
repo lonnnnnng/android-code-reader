@@ -48,6 +48,13 @@ class SampleProjectUiTest {
 
     @Test
     fun markdownSearchResultOpensSourceAndScrollsToMatchedLine() {
+        val expectedLine = InstrumentationRegistry.getInstrumentation().targetContext.assets
+            .open("samples/README.md")
+            .bufferedReader()
+            .useLines { lines -> lines.indexOfFirst { it == "## Mermaid 流程图" } + 1 }
+        check(expectedLine > 0) { "测试样例缺少 Mermaid 标题" }
+        val resultTitle = "README.md · 第 $expectedLine 行"
+
         composeRule.onNodeWithText("内置测试项目").performClick()
         composeRule.waitUntil(timeoutMillis = 10_000) {
             composeRule.onAllNodesWithTag("project-list").fetchSemanticsNodes().isNotEmpty()
@@ -56,20 +63,24 @@ class SampleProjectUiTest {
         composeRule.onNodeWithText("搜索项目内容").performTextInput("Mermaid")
         composeRule.onNodeWithText("搜索项目内容").performImeAction()
         composeRule.waitUntil(timeoutMillis = 10_000) {
-            composeRule.onAllNodesWithText("README.md · 第 120 行").fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodesWithText(resultTitle).fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithText("README.md · 第 120 行").performClick()
+        composeRule.onNodeWithText(resultTitle).performClick()
         composeRule.onNodeWithContentDescription("预览 Markdown").assertIsDisplayed()
 
+        val expectedEditorLine = expectedLine - 1
         var editor: CodeEditor? = null
         composeRule.waitUntil(timeoutMillis = 10_000) {
             InstrumentationRegistry.getInstrumentation().runOnMainSync {
                 editor = findCodeEditor(composeRule.activity.findViewById(android.R.id.content))
             }
-            editor?.let { it.firstVisibleLine <= 119 && it.lastVisibleLine >= 119 } == true
+            editor?.let { it.firstVisibleLine <= expectedEditorLine && it.lastVisibleLine >= expectedEditorLine } == true
         }
         assertNotNull("没有找到 Sora 编辑器", editor)
-        assertTrue("第 120 行没有进入可见区域", editor!!.firstVisibleLine <= 119 && editor!!.lastVisibleLine >= 119)
+        assertTrue(
+            "第 $expectedLine 行没有进入可见区域",
+            editor!!.firstVisibleLine <= expectedEditorLine && editor!!.lastVisibleLine >= expectedEditorLine,
+        )
     }
 
     @Test

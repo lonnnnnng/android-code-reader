@@ -46,6 +46,32 @@ class MarkdownPreviewInstrumentedTest {
     }
 
     @Test
+    fun yamlFrontMatterIsRenderedAsCollapsedHighlightedSection() {
+        openMarkdownDocument()
+
+        val webView = waitForWebView()
+        waitForMarkdown(webView)
+
+        assertEquals(
+            "Front Matter 应使用可展开的 details 语义",
+            "\"DETAILS\"",
+            evaluate(webView, "document.querySelector('.front-matter')?.tagName || ''"),
+        )
+        assertEquals(
+            "Front Matter 默认应折叠，避免挤占手机首屏",
+            "false",
+            evaluate(webView, "document.querySelector('.front-matter')?.open === true"),
+        )
+        assertTrue("Front Matter 没有显示标题", domCount(webView, ".front-matter > summary") == 1)
+        assertTrue("Front Matter YAML 没有产生属性高亮", domCount(webView, ".front-matter .hljs-attr") > 0)
+        assertEquals(
+            "Front Matter 展开后必须保留原始 YAML 内容",
+            "true",
+            evaluate(webView, "document.querySelector('.front-matter')?.textContent.includes('category: Android 阅读器') === true"),
+        )
+    }
+
+    @Test
     fun switchingMarkdownModesKeepsNativeReaderViewsAlive() {
         openMarkdownDocument()
         val webViewBefore = waitForWebView()

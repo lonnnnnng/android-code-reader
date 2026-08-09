@@ -22,7 +22,7 @@ object MarkdownOutlineParser {
         var setextQuoteDepth = 0
         val headings = mutableListOf<MarkdownHeading>()
 
-        markdown.lineSequence().forEach { rawLine ->
+        markdownBodyLines(markdown).forEach { rawLine ->
             val line = normalizeLine(rawLine)
             if (line.indentedCode) {
                 setextCandidate = null
@@ -84,6 +84,16 @@ object MarkdownOutlineParser {
             setextQuoteDepth = line.quoteDepth
         }
         return headings
+    }
+
+    /** Front Matter 属于文档元数据，不能把末尾分隔线前的属性误识别为 Setext 标题。 @author long */
+    private fun markdownBodyLines(markdown: String): Sequence<String> {
+        val lines = markdown.lineSequence().toList()
+        if (lines.firstOrNull()?.removePrefix("\uFEFF")?.trim() != "---") return lines.asSequence()
+        val closingOffset = lines.drop(1).indexOfFirst { line ->
+            line.trim() == "---" || line.trim() == "..."
+        }
+        return if (closingOffset >= 0) lines.drop(closingOffset + 2).asSequence() else lines.asSequence()
     }
 
     /** 预览会给引用块中的标题也生成 h1-h6，目录索引必须按同样的顺序统计。 @author long */
