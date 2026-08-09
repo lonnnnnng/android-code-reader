@@ -9,9 +9,12 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -155,6 +158,7 @@ import com.lonnnnnng.codereader.data.ReadingDocumentState
 import com.lonnnnnng.codereader.data.RecentProjectRecord
 import com.lonnnnnng.codereader.domain.ProjectSearchOptions
 import com.lonnnnnng.codereader.domain.ProjectSearchScope
+import com.lonnnnnng.codereader.domain.MarkdownHeading
 import com.lonnnnnng.codereader.domain.TextSearchMatcher
 import com.lonnnnnng.codereader.domain.TextSearchOptions
 import com.lonnnnnng.codereader.model.AppColorPalette
@@ -2343,7 +2347,7 @@ private fun ReaderScreen(
     var searchVisible by remember(document.id) { mutableStateOf(state.fileSearchQuery.isNotBlank()) }
     var fileSearchText by remember(document.id) { mutableStateOf(state.fileSearchQuery) }
     var showFileSwitcher by remember { mutableStateOf(false) }
-    var showOutline by remember { mutableStateOf(false) }
+    var outlineExpanded by remember(document.id) { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showGotoLine by remember { mutableStateOf(false) }
     var showEncoding by remember { mutableStateOf(false) }
@@ -2359,6 +2363,13 @@ private fun ReaderScreen(
         else -> "只读"
     }
     val displayPath = projectPath?.takeUnless { it == document.name }
+    val markdownSurfaceVisible = document.fileType.markdown && state.markdownPreview
+    val markdownHeadings = state.markdownHeadings
+
+    LaunchedEffect(document.id, markdownSurfaceVisible) {
+        // 源码模式没有目录锚点可跳转，返回预览时从紧凑状态开始，避免目录意外挤占正文。 @author long
+        if (!markdownSurfaceVisible) outlineExpanded = false
+    }
 
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Surface(color = MaterialTheme.colorScheme.surface) {
@@ -2478,9 +2489,9 @@ private fun ReaderScreen(
                             )
                             if (document.fileType.markdown && state.markdownPreview && state.markdownHeadings.isNotEmpty()) {
                                 DropdownMenuItem(
-                                    text = { Text("Markdown 目录") },
+                                    text = { Text(if (outlineExpanded) "收起 Markdown 目录" else "展开 Markdown 目录") },
                                     leadingIcon = { Icon(Icons.AutoMirrored.Outlined.List, contentDescription = null) },
-                                    onClick = { menuExpanded = false; showOutline = true },
+                                    onClick = { menuExpanded = false; outlineExpanded = !outlineExpanded },
                                     contentPadding = PaddingValues(horizontal = 12.dp),
                                     modifier = Modifier.heightIn(min = ReaderDimens.iconTouchTarget),
                                 )
@@ -2563,19 +2574,37 @@ private fun ReaderScreen(
                     hasProject = state.projectEntries.isNotEmpty(),
                     markdown = document.fileType.markdown,
                     markdownPreview = state.markdownPreview,
+                    markdownOutlineAvailable = markdownHeadings.isNotEmpty(),
+                    markdownOutlineExpanded = outlineExpanded,
                     editable = state.editable,
                     dirty = state.dirty,
                     onOpenFileSwitcher = { showFileSwitcher = true },
-                    onTogglePreview = onTogglePreview,
+                    onTogglePreview = { outlineExpanded = false; onTogglePreview() },
+                    onToggleMarkdownOutline = { outlineExpanded = !outlineExpanded },
                     onToggleEditable = { onEditable(!state.editable) },
                     onSave = onSave,
                 )
             }
         }
 
-        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+        AnimatedVisibility(
+            visible = markdownSurfaceVisible && outlineExpanded && markdownHeadings.isNotEmpty(),
+            enter = expandVertically(animationSpec = tween(180)) + fadeIn(animationSpec = tween(120)),
+            exit = shrinkVertically(animationSpec = tween(150)) + fadeOut(animationSpec = tween(100)),
+        ) {
+            MarkdownOutlinePanel(
+                headings = markdownHeadings,
+                onCollapse = { outlineExpanded = false },
+                onHeading = { headingIndex ->
+                    // 跳转后收起目录，把屏幕空间立即还给正文，同时保留工具栏入口供下一次导航。 @author long
+                    outlineExpanded = false
+                    onGotoHeading(headingIndex)
+                },
+            )
+        }
+
+        Box(modifier = Modifier.fillMaxWidth().weight(1f).testTag("reader-content-surface")) {
             // 跨文件标签切换时继续保留 Markdown WebView，避免从源码文件回到 Markdown 时白屏重建。
-            val markdownSurfaceVisible = document.fileType.markdown && state.markdownPreview
             MarkdownPreview(
                 documentId = document.id,
                 markdownText = state.draftText,
@@ -2626,13 +2655,6 @@ private fun ReaderScreen(
             entries = state.projectEntries.filterNot { it.source.isDirectory },
             onDismiss = { showFileSwitcher = false },
             onOpen = { showFileSwitcher = false; onOpenEntry(it) },
-        )
-    }
-    if (showOutline) {
-        MarkdownOutlineSheet(
-            state = state,
-            onDismiss = { showOutline = false },
-            onHeading = { showOutline = false; onGotoHeading(it) },
         )
     }
     if (showSettings) {
@@ -3047,10 +3069,13 @@ internal fun ReaderActionBar(
     hasProject: Boolean,
     markdown: Boolean,
     markdownPreview: Boolean,
+    markdownOutlineAvailable: Boolean,
+    markdownOutlineExpanded: Boolean,
     editable: Boolean,
     dirty: Boolean,
     onOpenFileSwitcher: () -> Unit,
     onTogglePreview: () -> Unit,
+    onToggleMarkdownOutline: () -> Unit,
     onToggleEditable: () -> Unit,
     onSave: () -> Unit,
 ) {
@@ -3078,6 +3103,15 @@ internal fun ReaderActionBar(
                     selected = markdownPreview,
                     stateDescription = if (markdownPreview) "当前为 Markdown 预览" else "当前为 Markdown 源码",
                     onClick = onTogglePreview,
+                )
+            }
+            if (markdownPreview && markdownOutlineAvailable) {
+                ReaderActionButton(
+                    icon = Icons.AutoMirrored.Outlined.List,
+                    contentDescription = if (markdownOutlineExpanded) "折叠 Markdown 目录" else "展开 Markdown 目录",
+                    selected = markdownOutlineExpanded,
+                    stateDescription = if (markdownOutlineExpanded) "目录已展开" else "目录已折叠",
+                    onClick = onToggleMarkdownOutline,
                 )
             }
             ReaderActionButton(
@@ -3205,37 +3239,94 @@ private fun FileSwitcherSheet(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MarkdownOutlineSheet(
-    state: ReaderUiState,
-    onDismiss: () -> Unit,
+private fun MarkdownOutlinePanel(
+    headings: List<MarkdownHeading>,
+    onCollapse: () -> Unit,
     onHeading: (Int) -> Unit,
 ) {
-    ReaderBottomSheet(
-        onDismissRequest = onDismiss,
-        modifier = Modifier.testTag("markdown-outline-sheet"),
+    Surface(
+        modifier = Modifier.fillMaxWidth().testTag("markdown-outline-panel"),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        tonalElevation = 1.dp,
     ) {
-        ReaderSheetHeader(title = "Markdown 目录", icon = Icons.AutoMirrored.Outlined.List) {
-            Text("${state.markdownHeadings.size}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, fontFamily = FontFamily.Monospace)
-        }
-        LazyColumn(modifier = Modifier.fillMaxWidth().height(460.dp)) {
-            items(state.markdownHeadings, key = { it.index }) { heading ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onHeading(heading.index) }
-                        .padding(start = (20 + (heading.level - 1) * 18).dp, end = 20.dp, top = 12.dp, bottom = 12.dp),
-                    verticalAlignment = Alignment.Top,
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(ReaderDimens.iconTouchTarget)
+                    .padding(start = 12.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Outlined.List,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    "Markdown 目录",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(start = 9.dp),
+                )
+                Text(
+                    "${headings.size} 个标题",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+                Spacer(Modifier.weight(1f))
+                IconButton(
+                    onClick = onCollapse,
+                    modifier = Modifier.size(ReaderDimens.iconTouchTarget),
                 ) {
-                    Text(
-                        "H${heading.level}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.width(28.dp),
+                    Icon(
+                        Icons.Outlined.ExpandMore,
+                        contentDescription = "收起目录面板",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
                     )
-                    Text(heading.title, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f))
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 220.dp)
+                    .testTag("markdown-outline-list"),
+                contentPadding = PaddingValues(vertical = 4.dp),
+            ) {
+                items(headings, key = { it.index }) { heading ->
+                    val horizontalIndent = (12 + (heading.level - 1) * 12).coerceAtMost(60).dp
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = ReaderDimens.iconTouchTarget)
+                            .clickable { onHeading(heading.index) }
+                            .testTag("markdown-outline-heading-${heading.index}")
+                            .semantics(mergeDescendants = true) {
+                                contentDescription = "跳转到 H${heading.level} ${heading.title}"
+                            }
+                            .padding(start = horizontalIndent, end = 12.dp, top = 8.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "H${heading.level}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.width(28.dp),
+                        )
+                        Text(
+                            heading.title,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
             }
         }

@@ -163,9 +163,28 @@ class MarkdownPreviewInstrumentedTest {
         val webViewBefore = waitForWebView()
         waitForMarkdown(webViewBefore)
 
+        composeRule.onNodeWithContentDescription("展开 Markdown 目录").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithTag("markdown-outline-list").fetchSemanticsNodes().size == 1
+        }
         composeRule.onNodeWithContentDescription("查看源码").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithContentDescription("预览 Markdown").fetchSemanticsNodes().size == 1 &&
+                composeRule.onAllNodesWithTag("markdown-outline-list").fetchSemanticsNodes().isEmpty()
+        }
+        assertTrue(
+            "源码模式不应保留 Markdown 目录入口",
+            composeRule.onAllNodesWithContentDescription("展开 Markdown 目录").fetchSemanticsNodes().isEmpty(),
+        )
         val editorBefore = waitForCodeEditor()
         composeRule.onNodeWithContentDescription("预览 Markdown").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithContentDescription("展开 Markdown 目录").fetchSemanticsNodes().size == 1
+        }
+        assertTrue(
+            "返回预览后目录应恢复折叠状态",
+            composeRule.onAllNodesWithTag("markdown-outline-list").fetchSemanticsNodes().isEmpty(),
+        )
 
         val webViewAfter = waitForWebView()
         // 源码和预览切换只改变可见层，保留 WebView 才能保住预览滚动位置与渲染上下文。
@@ -245,6 +264,69 @@ class MarkdownPreviewInstrumentedTest {
         composeRule.onNodeWithContentDescription("预览 Markdown").performClick()
         composeRule.waitUntil(timeoutMillis = 10_000) {
             composeRule.onAllNodesWithContentDescription("查看源码").fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    @Test
+    fun markdownOutlineStaysAvailableAndCollapsesAfterNavigation() {
+        openMarkdownDocument()
+        val webView = waitForWebView()
+        waitForMarkdown(webView)
+        val viewModel = ViewModelProvider(composeRule.activity)[ReaderViewModel::class.java]
+        val mathHeadingIndex = requireNotNull(
+            viewModel.state.value.markdownHeadings.firstOrNull { it.title == "数学公式" }?.index,
+        )
+        val collapsedContentTop = composeRule.onNodeWithTag("reader-content-surface")
+            .fetchSemanticsNode().boundsInRoot.top
+
+        assertTrue(
+            "Markdown 预览应固定提供可展开的目录入口",
+            composeRule.onAllNodesWithContentDescription("展开 Markdown 目录").fetchSemanticsNodes().size == 1,
+        )
+        composeRule.onNodeWithContentDescription("更多").performClick()
+        composeRule.onNodeWithText("展开 Markdown 目录").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithContentDescription("折叠 Markdown 目录").fetchSemanticsNodes().size == 1 &&
+                composeRule.onAllNodesWithTag("markdown-outline-list").fetchSemanticsNodes().size == 1
+        }
+        composeRule.waitForIdle()
+        val panelBottom = composeRule.onNodeWithTag("markdown-outline-panel")
+            .fetchSemanticsNode().boundsInRoot.bottom
+        val expandedContentTop = composeRule.onNodeWithTag("reader-content-surface")
+            .fetchSemanticsNode().boundsInRoot.top
+        assertTrue(
+            "展开目录应占据独立布局区域，不能覆盖 Markdown 正文",
+            panelBottom <= expandedContentTop + 1f,
+        )
+
+        composeRule.onNodeWithContentDescription("折叠 Markdown 目录").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithTag("markdown-outline-list").fetchSemanticsNodes().isEmpty()
+        }
+        composeRule.waitForIdle()
+        val restoredContentTop = composeRule.onNodeWithTag("reader-content-surface")
+            .fetchSemanticsNode().boundsInRoot.top
+        assertTrue(
+            "目录折叠后不能继续占用正文高度",
+            kotlin.math.abs(restoredContentTop - collapsedContentTop) < 1f,
+        )
+
+        composeRule.onNodeWithContentDescription("展开 Markdown 目录").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithTag("markdown-outline-list").fetchSemanticsNodes().size == 1
+        }
+
+        composeRule.onNodeWithTag("markdown-outline-list").performScrollToNode(hasText("数学公式"))
+        composeRule.onNodeWithText("数学公式").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithContentDescription("展开 Markdown 目录").fetchSemanticsNodes().size == 1 &&
+                composeRule.onAllNodesWithTag("markdown-outline-list").fetchSemanticsNodes().isEmpty()
+        }
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            evaluate(
+                webView,
+                "Math.abs(document.getElementById('heading-$mathHeadingIndex')?.getBoundingClientRect().top || 9999) < 96",
+            ) == "true"
         }
     }
 

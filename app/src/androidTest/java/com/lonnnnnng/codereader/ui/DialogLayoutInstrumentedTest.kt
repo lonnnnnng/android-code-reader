@@ -242,10 +242,13 @@ class DialogLayoutInstrumentedTest {
                         hasProject = true,
                         markdown = true,
                         markdownPreview = true,
+                        markdownOutlineAvailable = true,
+                        markdownOutlineExpanded = false,
                         editable = false,
                         dirty = false,
                         onOpenFileSwitcher = {},
                         onTogglePreview = {},
+                        onToggleMarkdownOutline = {},
                         onToggleEditable = {},
                         onSave = {},
                     )
