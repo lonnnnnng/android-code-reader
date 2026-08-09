@@ -90,4 +90,22 @@ class MarkdownOutlineParserTest {
             MarkdownOutlineParser.parse(markdown),
         )
     }
+
+    @Test
+    fun `带前导空格的分隔线不是 Front Matter`() {
+        val markdown = """
+              ---
+            文档标题
+            ---
+            # 正文标题
+        """.trimIndent()
+
+        assertEquals(
+            listOf(
+                MarkdownHeading(0, 2, "文档标题"),
+                MarkdownHeading(1, 1, "正文标题"),
+            ),
+            MarkdownOutlineParser.parse(markdown),
+        )
+    }
 }

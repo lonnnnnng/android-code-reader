@@ -13,6 +13,8 @@ object MarkdownOutlineParser {
     private val setextPattern = Regex("^(=+|-+)[ \\t]*$")
     private val listItemPattern = Regex("^(?:[-+*]|\\d+[.)])[ \\t]+(.*)$")
     private val closingHashes = Regex("\\s+#+\\s*$")
+    private val frontMatterStartPattern = Regex("^---[ \\t]*$")
+    private val frontMatterEndPattern = Regex("^(?:---|\\.\\.\\.)[ \\t]*$")
 
     fun parse(markdown: String): List<MarkdownHeading> {
         var fenceMarker: Char? = null
@@ -89,9 +91,11 @@ object MarkdownOutlineParser {
     /** Front Matter 属于文档元数据，不能把末尾分隔线前的属性误识别为 Setext 标题。 @author long */
     private fun markdownBodyLines(markdown: String): Sequence<String> {
         val lines = markdown.lineSequence().toList()
-        if (lines.firstOrNull()?.removePrefix("\uFEFF")?.trim() != "---") return lines.asSequence()
+        val firstLine = lines.firstOrNull()?.removePrefix("\uFEFF")
+        // 与 WebView 渲染器保持同一边界：分隔线必须顶格，避免目录与预览对标题数量产生分歧。
+        if (firstLine == null || !frontMatterStartPattern.matches(firstLine)) return lines.asSequence()
         val closingOffset = lines.drop(1).indexOfFirst { line ->
-            line.trim() == "---" || line.trim() == "..."
+            frontMatterEndPattern.matches(line)
         }
         return if (closingOffset >= 0) lines.drop(closingOffset + 2).asSequence() else lines.asSequence()
     }
