@@ -542,6 +542,14 @@ fun ReaderApp(viewModel: ReaderViewModel) {
             }
         }
 
+        state.gitUpdatePreview?.let { preview ->
+            GitUpdatePreviewDialog(
+                preview = preview,
+                onDismiss = viewModel::dismissGitUpdatePreview,
+                onApply = viewModel::applyGitUpdatePreview,
+            )
+        }
+
         // Git 弹窗必须留在应用主题树中，否则暗色模式会回退到 Material 默认亮色方案。 @author long
         if (showGitDialog) {
             GitCloneDialog(

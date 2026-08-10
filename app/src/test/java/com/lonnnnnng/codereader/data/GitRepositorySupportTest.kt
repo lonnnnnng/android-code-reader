@@ -55,4 +55,34 @@ class GitRepositorySupportTest {
         assertNull(progress.last().percent)
         assertTrue(monitor.isCancelled)
     }
+
+    @Test
+    fun `编辑器未保存草稿会合并到 Git 工作区摘要并阻止更新`() {
+        val preview = GitUpdatePreview(
+            branchName = "main",
+            upstreamName = "origin/main",
+            upstreamRef = "refs/remotes/origin/main",
+            headRevision = "1".repeat(40),
+            targetRevision = "2".repeat(40),
+            relation = GitUpdateRelation.FAST_FORWARD,
+            remoteCommitCount = 1,
+            remoteCommits = emptyList(),
+            remoteCommitsTruncated = false,
+            remoteChangeCount = 1,
+            remoteChanges = emptyList(),
+            remoteChangesTruncated = false,
+            localChangeCount = 0,
+            localChanges = emptyList(),
+            localChangesTruncated = false,
+        )
+
+        val protectedPreview = preview.withUnsavedChanges(listOf("src/Main.kt", "src/Main.kt"))
+
+        assertEquals(1, protectedPreview.localChangeCount)
+        assertEquals(
+            GitLocalChange("src/Main.kt", GitLocalChangeKind.UNSAVED),
+            protectedPreview.localChanges.single(),
+        )
+        assertFalse(protectedPreview.canApply)
+    }
 }

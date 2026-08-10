@@ -16,6 +16,10 @@ import com.lonnnnnng.codereader.data.DraftFingerprint
 import com.lonnnnnng.codereader.data.DraftStore
 import com.lonnnnnng.codereader.data.GitOperationCancelledException
 import com.lonnnnnng.codereader.data.GitOperationProgressMonitor
+import com.lonnnnnng.codereader.data.GitRepositoryManager
+import com.lonnnnnng.codereader.data.GitUpdatePreview
+import com.lonnnnnng.codereader.data.GitUpdateRejectedException
+import com.lonnnnnng.codereader.data.GitUpdateRelation
 import com.lonnnnnng.codereader.data.ProjectImporter
 import com.lonnnnnng.codereader.data.ReadingDocumentState
 import com.lonnnnnng.codereader.data.ReadingStateCodec
@@ -258,6 +262,7 @@ data class ReaderUiState(
     val errorBackTarget: AppScreen = AppScreen.HOME,
     val failure: ReaderFailureState? = null,
     val gitRepositoryRoot: String? = null,
+    val gitUpdatePreview: GitUpdatePreview? = null,
     val projectRoot: EntryLocation? = null,
     val projectEntries: List<ProjectTreeEntry> = emptyList(),
     val expandedDirectoryIds: Set<String> = emptySet(),
@@ -337,6 +342,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private val repository = DocumentRepository(application)
     private val draftStore = DraftStore(DraftStore.defaultDirectory(application))
     private val importer = ProjectImporter(application)
+    private val gitRepositoryManager = GitRepositoryManager(application)
     private val updateRepository = AppUpdateRepository(application)
     private val commandIds = AtomicLong()
     private val fileSearchRequestIds = AtomicLong()
@@ -443,7 +449,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun cloneGit(url: String) = launchGitOperation("正在克隆 Git 仓库") { monitor ->
-        val directory = importer.cloneGit(url, monitor)
+        val directory = gitRepositoryManager.clone(url, monitor)
         updateOperationDetail("正在建立完整目录索引")
         openLocalRoot(directory, rememberRecent = true)
         "已克隆 ${directory.name}"
@@ -451,41 +457,65 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun updateGitRepository() {
         val root = _state.value.gitRepositoryRoot?.let(::File)
-        if (root == null || !importer.isGitRepository(root)) {
+        if (root == null || !gitRepositoryManager.isRepository(root)) {
             _state.update { it.copy(message = "当前项目不是可更新的 Git 仓库") }
             return
         }
-        if (_state.value.tabs.any { it.dirty && isDocumentInside(it.document, root) }) {
-            _state.update { it.copy(message = "请先保存或关闭该仓库中未保存的文件，再获取最新代码") }
+
+        val unsavedPaths = unsavedGitPaths(root)
+        launchGitOperation("正在检查仓库更新") { monitor ->
+            val preview = gitRepositoryManager.previewUpdate(root, monitor).withUnsavedChanges(unsavedPaths)
+            if (_state.value.gitRepositoryRoot != root.absolutePath) {
+                "当前项目已切换，未显示旧仓库的更新预览"
+            } else if (preview.relation == GitUpdateRelation.UP_TO_DATE && preview.localChangeCount == 0) {
+                "仓库已经是最新版本"
+            } else {
+                _state.update { it.copy(gitUpdatePreview = preview, message = null) }
+                null
+            }
+        }
+    }
+
+    fun dismissGitUpdatePreview() {
+        _state.update { it.copy(gitUpdatePreview = null) }
+    }
+
+    fun applyGitUpdatePreview() {
+        val preview = _state.value.gitUpdatePreview ?: return
+        val root = _state.value.gitRepositoryRoot?.let(::File)
+        if (root == null || !gitRepositoryManager.isRepository(root)) {
+            _state.update { it.copy(gitUpdatePreview = null, message = "当前 Git 项目已经失效") }
+            return
+        }
+        if (!preview.canApply) {
+            _state.update { it.copy(message = "当前预览不满足安全快进条件") }
+            return
+        }
+        val unsavedPaths = unsavedGitPaths(root)
+        if (unsavedPaths.isNotEmpty()) {
+            _state.update {
+                it.copy(
+                    gitUpdatePreview = preview.withUnsavedChanges(unsavedPaths),
+                    message = "检测到尚未保存的文件，已暂停 Git 更新",
+                )
+            }
             return
         }
 
-        launchGitOperation("正在获取最新代码") { monitor ->
-            val result = importer.updateGit(root, monitor)
+        _state.update { it.copy(gitUpdatePreview = null, message = null) }
+        launchGitOperation(
+            title = "正在应用安全更新",
+            initialDetail = "正在核对工作区与预览版本",
+            cancellable = false,
+        ) { monitor ->
+            val result = gitRepositoryManager.applyUpdate(root, preview, monitor)
             if (result.updated) {
-                val index = buildProjectIndex(EntryLocation.Local(root), forceRefresh = true)
-                _state.update { current ->
-                    // 更新后的工作区文件可能已经改变，关闭该仓库的旧标签可避免继续显示拉取前的缓存内容。 @author long
-                    val remainingTabs = current.tabs.filterNot { isDocumentInside(it.document, root) }
-                    val activeId = current.activeTabId?.takeIf { id -> remainingTabs.any { it.document.id == id } }
-                    current.copy(
-                        projectEntries = index,
-                        expandedDirectoryIds = emptySet(),
-                        projectSearchQuery = "",
-                        projectSearchResults = emptyList(),
-                        projectSearchInProgress = false,
-                        projectSearchError = null,
-                        projectSearchTotalMatches = 0,
-                        projectSearchMatchedFiles = 0,
-                        projectSearchResultsTruncated = false,
-                        projectSearchActiveResultIndex = -1,
-                        projectRevealEntryId = null,
-                        tabs = remainingTabs,
-                        activeTabId = activeId,
-                    )
-                }
+                updateOperationDetail("正在刷新完整目录索引")
+                refreshAfterGitUpdate(root)
+                "已安全更新到 ${preview.targetRevision.orEmpty().take(8)}"
+            } else {
+                "仓库已经是最新版本"
             }
-            if (result.updated) "已获取最新代码" else "仓库已经是最新版本"
         }
     }
 
@@ -2051,7 +2081,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val index = buildProjectIndex(root)
         val gitRoot = (root as? EntryLocation.Local)
             ?.file
-            ?.takeIf(importer::isGitRepository)
+            ?.takeIf(gitRepositoryManager::isRepository)
             ?.absolutePath
         if (recent != null) rememberRecentProject(recent)
         _state.update {
@@ -2062,6 +2092,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 browserTitle = title,
                 browserBackTarget = backTarget,
                 gitRepositoryRoot = gitRoot,
+                gitUpdatePreview = null,
                 projectRoot = root,
                 projectEntries = index,
                 expandedDirectoryIds = emptySet(),
@@ -2150,6 +2181,44 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             val filePath = file.canonicalPath
             filePath == rootPath || filePath.startsWith(rootPath + File.separator)
         }.getOrDefault(false)
+    }
+
+    /** Git Status 看不到 Sora 内尚未落盘的草稿，因此更新预览和确认前都要从标签状态补齐。 @author long */
+    private fun unsavedGitPaths(root: File): List<String> = _state.value.tabs
+        .asSequence()
+        .filter { it.dirty && isDocumentInside(it.document, root) }
+        .mapNotNull { tab ->
+            val file = (tab.document.location as? EntryLocation.Local)?.file ?: return@mapNotNull null
+            runCatching {
+                file.canonicalFile.relativeTo(root.canonicalFile).path.replace(File.separatorChar, '/')
+            }.getOrNull()
+        }
+        .distinct()
+        .sorted()
+        .toList()
+
+    private suspend fun refreshAfterGitUpdate(root: File) {
+        val index = buildProjectIndex(EntryLocation.Local(root), forceRefresh = true)
+        _state.update { current ->
+            // 更新后的工作区文件可能已经改变，关闭该仓库的旧标签可避免继续显示拉取前的缓存内容。 @author long
+            val remainingTabs = current.tabs.filterNot { isDocumentInside(it.document, root) }
+            val activeId = current.activeTabId?.takeIf { id -> remainingTabs.any { it.document.id == id } }
+            current.copy(
+                projectEntries = index,
+                expandedDirectoryIds = emptySet(),
+                projectSearchQuery = "",
+                projectSearchResults = emptyList(),
+                projectSearchInProgress = false,
+                projectSearchError = null,
+                projectSearchTotalMatches = 0,
+                projectSearchMatchedFiles = 0,
+                projectSearchResultsTruncated = false,
+                projectSearchActiveResultIndex = -1,
+                projectRevealEntryId = null,
+                tabs = remainingTabs,
+                activeTabId = activeId,
+            )
+        }
     }
 
     private fun isDocumentInsideRoot(document: OpenDocument, root: EntryLocation): Boolean = when (root) {
@@ -2468,7 +2537,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun launchGitOperation(
         title: String,
-        block: suspend (GitOperationProgressMonitor) -> String,
+        initialDetail: String = "正在连接远程仓库",
+        cancellable: Boolean = true,
+        block: suspend (GitOperationProgressMonitor) -> String?,
     ) {
         viewModelScope.launch {
             val monitor = GitOperationProgressMonitor { progress ->
@@ -2487,8 +2558,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 it.copy(
                     operation = ReaderOperationState(
                         title = title,
-                        detail = "正在连接远程仓库",
-                        cancellable = true,
+                        detail = initialDetail,
+                        cancellable = cancellable,
                         kind = ReaderOperationKind.GIT,
                     ),
                     message = null,
@@ -2496,9 +2567,11 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             }
             try {
                 val successMessage = block(monitor)
-                _state.update { it.copy(message = successMessage) }
+                if (successMessage != null) _state.update { it.copy(message = successMessage) }
             } catch (cancelled: GitOperationCancelledException) {
                 _state.update { it.copy(message = cancelled.message) }
+            } catch (rejected: GitUpdateRejectedException) {
+                _state.update { it.copy(message = rejected.message ?: "Git 更新预览已经失效，请重新检查") }
             } catch (cancelled: CancellationException) {
                 _state.update { it.copy(message = cancelled.message ?: "操作已取消") }
             } catch (error: Throwable) {

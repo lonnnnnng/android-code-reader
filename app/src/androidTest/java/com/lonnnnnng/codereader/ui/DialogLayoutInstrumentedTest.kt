@@ -19,6 +19,13 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.unit.dp
+import com.lonnnnnng.codereader.data.GitCommitSummary
+import com.lonnnnnng.codereader.data.GitLocalChange
+import com.lonnnnnng.codereader.data.GitLocalChangeKind
+import com.lonnnnnng.codereader.data.GitRemoteChange
+import com.lonnnnnng.codereader.data.GitRemoteChangeKind
+import com.lonnnnnng.codereader.data.GitUpdatePreview
+import com.lonnnnnng.codereader.data.GitUpdateRelation
 import com.lonnnnnng.codereader.model.AppColorPalette
 import com.lonnnnnng.codereader.model.EntryLocation
 import com.lonnnnnng.codereader.model.FileType
@@ -99,6 +106,68 @@ class DialogLayoutInstrumentedTest {
         val actionBounds = composeRule.onNodeWithTag("update-downloading-button").fetchSemanticsNode().boundsInRoot
         assertTrue("下载进度应位于更新说明下方", notesBounds.bottom <= progressBounds.top)
         assertTrue("下载进度应位于操作按钮上方", progressBounds.bottom <= actionBounds.top)
+    }
+
+    @Test
+    fun gitUpdatePreviewShowsRemoteScopeAndDisablesApplyForLocalChanges() {
+        val preview = mutableStateOf(
+            GitUpdatePreview(
+                branchName = "main",
+                upstreamName = "origin/main",
+                upstreamRef = "refs/remotes/origin/main",
+                headRevision = "1111111111111111111111111111111111111111",
+                targetRevision = "2222222222222222222222222222222222222222",
+                relation = GitUpdateRelation.FAST_FORWARD,
+                remoteCommitCount = 1,
+                remoteCommits = listOf(
+                    GitCommitSummary(
+                        revision = "2222222222222222222222222222222222222222",
+                        title = "补充 Git 更新预览",
+                        authorName = "long",
+                        committedAtEpochSeconds = 1_700_000_000,
+                    ),
+                ),
+                remoteCommitsTruncated = false,
+                remoteChangeCount = 2,
+                remoteChanges = listOf(
+                    GitRemoteChange("app/src/main/App.kt", GitRemoteChangeKind.MODIFIED),
+                    GitRemoteChange("docs/git.md", GitRemoteChangeKind.ADDED),
+                ),
+                remoteChangesTruncated = false,
+                localChangeCount = 0,
+                localChanges = emptyList(),
+                localChangesTruncated = false,
+            ),
+        )
+        composeRule.setContent {
+            MaterialTheme(
+                colorScheme = appColorScheme(ReaderTheme.HIGH_CONTRAST_LIGHT, AppColorPalette.EMERALD),
+                typography = ReaderTypography,
+                shapes = ReaderShapes,
+            ) {
+                GitUpdatePreviewDialog(preview.value, onDismiss = {}, onApply = {})
+            }
+        }
+
+        composeRule.onNodeWithTag("git-update-preview-dialog").assertIsDisplayed()
+        composeRule.onNodeWithText("main → origin/main").assertIsDisplayed()
+        composeRule.onNodeWithText("1 个新提交 · 2 个文件变化").assertIsDisplayed()
+        composeRule.onNodeWithText("补充 Git 更新预览").assertIsDisplayed()
+        composeRule.onNodeWithText("app/src/main/App.kt").assertIsDisplayed()
+        composeRule.onNodeWithTag("git-update-apply").assertIsEnabled()
+
+        composeRule.runOnIdle {
+            preview.value = preview.value.copy(
+                localChangeCount = 1,
+                localChanges = listOf(
+                    GitLocalChange("app/src/main/App.kt", GitLocalChangeKind.UNSAVED),
+                ),
+            )
+        }
+
+        composeRule.onNodeWithText("发现 1 个本地修改，安全更新已暂停").assertIsDisplayed()
+        composeRule.onNodeWithText("未保存").assertIsDisplayed()
+        composeRule.onNodeWithTag("git-update-apply").assertIsNotEnabled()
     }
 
     @Test

@@ -45,8 +45,97 @@ internal data class GitOperationProgress(
 /** Git 更新结果区分“已拉到新提交”和“原本就是最新”，避免所有成功都显示同一句话。 @author long */
 internal data class GitUpdateResult(val updated: Boolean)
 
+/** 更新预览先区分提交关系，只有纯快进才允许继续应用。 @author long */
+enum class GitUpdateRelation {
+    UP_TO_DATE,
+    FAST_FORWARD,
+    LOCAL_AHEAD,
+    DIVERGED,
+    DETACHED,
+    NO_UPSTREAM,
+}
+
+/** 远端树差异只表达文件层级变化，首个切片不把重命名伪装成可安全自动处理的语义。 @author long */
+enum class GitRemoteChangeKind { ADDED, MODIFIED, DELETED }
+
+/** 工作区摘要用于解释为什么更新被阻止，不能只给出笼统的“Git 失败”。 @author long */
+enum class GitLocalChangeKind { ADDED, MODIFIED, DELETED, UNTRACKED, CONFLICTED, UNSAVED }
+
+/** @author long */
+data class GitCommitSummary(
+    val revision: String,
+    val title: String,
+    val authorName: String,
+    val committedAtEpochSeconds: Long,
+)
+
+/** @author long */
+data class GitRemoteChange(
+    val path: String,
+    val kind: GitRemoteChangeKind,
+)
+
+/** @author long */
+data class GitLocalChange(
+    val path: String,
+    val kind: GitLocalChangeKind,
+)
+
+/**
+ * fetch 只更新远端跟踪引用；真正修改工作区前，界面必须先展示这份不可变预览并取得用户确认。
+ *
+ * @author long
+ */
+data class GitUpdatePreview(
+    val branchName: String,
+    val upstreamName: String?,
+    val upstreamRef: String?,
+    val headRevision: String,
+    val targetRevision: String?,
+    val relation: GitUpdateRelation,
+    val remoteCommitCount: Int,
+    val remoteCommits: List<GitCommitSummary>,
+    val remoteCommitsTruncated: Boolean,
+    val remoteChangeCount: Int,
+    val remoteChanges: List<GitRemoteChange>,
+    val remoteChangesTruncated: Boolean,
+    val localChangeCount: Int,
+    val localChanges: List<GitLocalChange>,
+    val localChangesTruncated: Boolean,
+) {
+    val canApply: Boolean
+        get() = relation == GitUpdateRelation.FAST_FORWARD &&
+            targetRevision != null &&
+            localChangeCount == 0
+
+    /** 编辑器内尚未保存的草稿不会出现在 JGit Status 中，预览必须显式合并后再决定能否更新。 @author long */
+    fun withUnsavedChanges(paths: Collection<String>): GitUpdatePreview {
+        val normalizedPaths = paths.map(String::trim).filter(String::isNotEmpty).distinct().sorted()
+        if (normalizedPaths.isEmpty()) return this
+        val combined = linkedMapOf<String, GitLocalChangeKind>()
+        localChanges.forEach { combined[it.path] = it.kind }
+        normalizedPaths.forEach { combined[it] = GitLocalChangeKind.UNSAVED }
+        val hiddenExisting = (localChangeCount - localChanges.size).coerceAtLeast(0)
+        return copy(
+            localChangeCount = hiddenExisting + combined.size,
+            localChanges = combined.entries
+                .sortedBy { it.key }
+                .take(MAX_LOCAL_CHANGES_IN_PREVIEW)
+                .map { GitLocalChange(it.key, it.value) },
+            localChangesTruncated = hiddenExisting > 0 || combined.size > MAX_LOCAL_CHANGES_IN_PREVIEW,
+        )
+    }
+
+    private companion object {
+        const val MAX_LOCAL_CHANGES_IN_PREVIEW = 20
+    }
+}
+
 /** 用户主动取消网络传输时使用独立异常，界面可以给出普通提示而不是失败告警。 @author long */
 internal class GitOperationCancelledException(message: String) : IllegalStateException(message)
+
+/** 预览失效或工作区变化属于可恢复保护，不应跳转到通用错误页。 @author long */
+internal class GitUpdateRejectedException(message: String) : IllegalStateException(message)
 
 /**
  * JGit 在后台线程高频回调增量值；这里只在百分比变化时通知界面，避免大型仓库传输时触发过量重组。
@@ -125,6 +214,7 @@ internal class GitOperationProgressMonitor(
             "receiving objects" in normalized -> "正在接收对象"
             "resolving deltas" in normalized -> "正在整理文件差异"
             "checking out files" in normalized || "checkout" in normalized -> "正在写入工作区"
+            "analyz" in normalized -> "正在分析更新内容"
             "fetch" in normalized -> "正在获取远程更新"
             title.isBlank() -> "正在处理仓库数据"
             else -> "正在处理：${title.take(MAX_TASK_TITLE_LENGTH)}"
