@@ -5,6 +5,7 @@ import android.content.Context
 import android.database.Cursor
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.system.Os
 import android.webkit.MimeTypeMap
 import androidx.documentfile.provider.DocumentFile
 import com.lonnnnnng.codereader.model.BinaryContentException
@@ -34,13 +35,37 @@ import com.lonnnnnng.codereader.domain.TextSearchProgress
 import java.io.ByteArrayOutputStream
 import java.io.BufferedReader
 import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
 import java.io.InputStream
 import java.io.InputStreamReader
+import java.io.OutputStream
 import java.io.PushbackInputStream
 import java.util.concurrent.ConcurrentHashMap
 
 /** 项目搜索只返回手机端可流畅浏览的前 200 条，UI 会明确提示该显示上限。 @author long */
 internal const val PROJECT_SEARCH_RESULT_LIMIT = 200
+
+/** 保存事务会标明失败后原文件是否仍可信，界面据此给出不同级别的恢复提示。 @author long */
+class DocumentSaveException(
+    message: String,
+    val originalMayBeAffected: Boolean,
+    cause: Throwable? = null,
+) : IOException(message, cause)
+
+/** SAF 读写属于系统/Provider 边界，独立接口用于验证提供方中途失败和回滚行为。 @author long */
+interface SafDocumentAccess {
+    fun openInput(uri: Uri): InputStream?
+    fun openOutput(uri: Uri, mode: String): OutputStream?
+}
+
+/** @author long */
+private class ContentResolverSafDocumentAccess(
+    private val resolver: ContentResolver,
+) : SafDocumentAccess {
+    override fun openInput(uri: Uri): InputStream? = resolver.openInputStream(uri)
+    override fun openOutput(uri: Uri, mode: String): OutputStream? = resolver.openOutputStream(uri, mode)
+}
 
 /**
  * 统一处理 SAF URI 和应用私有目录，避免阅读界面依赖具体来源。
@@ -50,6 +75,7 @@ internal const val PROJECT_SEARCH_RESULT_LIMIT = 200
 class DocumentRepository(
     private val context: Context,
     private val memoryBudgetProvider: MemoryBudgetProvider = AndroidMemoryBudgetProvider(context),
+    private val safDocumentAccess: SafDocumentAccess = ContentResolverSafDocumentAccess(context.contentResolver),
 ) {
 
     private val resolver: ContentResolver = context.contentResolver
@@ -149,9 +175,92 @@ class DocumentRepository(
     suspend fun save(document: OpenDocument, text: String) = withContext(Dispatchers.IO) {
         val bytes = document.encoding.encode(text)
         when (val location = document.location) {
-            is EntryLocation.Saf -> resolver.openOutputStream(location.uri, "wt")?.use { it.write(bytes) }
-                ?: error("文件提供方不允许写入：${document.name}")
-            is EntryLocation.Local -> location.file.outputStream().use { it.write(bytes) }
+            is EntryLocation.Saf -> saveSafWithRollback(location.uri, bytes, document.name)
+            is EntryLocation.Local -> saveLocalAtomically(location.file, bytes, document.name)
+        }
+        bytes.size.toLong()
+    }
+
+    /**
+     * SAF 没有跨 Provider 的原子替换保证，因此写入前保留原始字节；中途失败时立即回滚，回滚失败则明确告警。
+     *
+     * @author long
+     */
+    private fun saveSafWithRollback(uri: Uri, bytes: ByteArray, documentName: String) {
+        val originalBytes = try {
+            safDocumentAccess.openInput(uri)?.use(::readLimited)
+                ?: throw IOException("文件提供方不允许读取原文件")
+        } catch (error: Exception) {
+            throw DocumentSaveException(
+                message = "无法在写入前备份原文件，已取消保存：${error.message ?: error.javaClass.simpleName}",
+                originalMayBeAffected = false,
+                cause = error,
+            )
+        }
+
+        try {
+            writeSafBytes(uri, bytes, documentName)
+        } catch (writeError: Exception) {
+            val rollbackError = runCatching {
+                writeSafBytes(uri, originalBytes, documentName)
+            }.exceptionOrNull()
+            if (rollbackError == null) {
+                throw DocumentSaveException(
+                    message = "保存失败，原文件已恢复：${writeError.message ?: writeError.javaClass.simpleName}",
+                    originalMayBeAffected = false,
+                    cause = writeError,
+                )
+            }
+            throw DocumentSaveException(
+                message = "保存失败且无法恢复原文件，原文件可能已受影响：${writeError.message ?: writeError.javaClass.simpleName}",
+                originalMayBeAffected = true,
+                cause = writeError,
+            ).also { it.addSuppressed(rollbackError) }
+        }
+    }
+
+    private fun writeSafBytes(uri: Uri, bytes: ByteArray, documentName: String) {
+        val output = safDocumentAccess.openOutput(uri, "wt")
+            ?: throw IOException("文件提供方不允许写入：$documentName")
+        output.use { stream ->
+            stream.write(bytes)
+            stream.flush()
+            (stream as? FileOutputStream)?.fd?.sync()
+        }
+    }
+
+    /**
+     * 本地文件先在同目录写入并同步临时文件，再用同文件系统 rename 原子替换；任何替换前失败都不会截断原文件。
+     *
+     * @author long
+     */
+    private fun saveLocalAtomically(file: File, bytes: ByteArray, documentName: String) {
+        // 保存符号链接时更新真实目标，避免原子替换把工作区里的链接本身变成普通文件。 @author long
+        val target = runCatching { file.canonicalFile }.getOrDefault(file)
+        require(target.isFile) { "文件已经不存在：$documentName" }
+        val parent = target.parentFile ?: error("无法确定文件目录：$documentName")
+        var temporary: File? = null
+        try {
+            temporary = File.createTempFile(".acr-save-", ".tmp", parent)
+            FileOutputStream(temporary).use { output ->
+                output.write(bytes)
+                output.flush()
+                output.fd.sync()
+            }
+            // Git 工作区文件通常是 0644，替换前尽量继承原权限，避免保存后被其他工具误判为权限变化。 @author long
+            runCatching {
+                val permissionBits = Os.stat(target.absolutePath).st_mode and 0x1FF
+                Os.chmod(temporary.absolutePath, permissionBits)
+            }
+            Os.rename(temporary.absolutePath, target.absolutePath)
+            temporary = null
+        } catch (error: Exception) {
+            temporary?.delete()
+            throw DocumentSaveException(
+                message = "保存失败，原文件保持不变：${error.message ?: error.javaClass.simpleName}",
+                originalMayBeAffected = false,
+                cause = error,
+            )
         }
     }
 

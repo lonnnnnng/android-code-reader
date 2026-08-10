@@ -9,6 +9,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.lonnnnnng.codereader.BuildConfig
 import com.lonnnnnng.codereader.data.DocumentRepository
+import com.lonnnnnng.codereader.data.DocumentSaveException
+import com.lonnnnnng.codereader.data.DocumentDraft
+import com.lonnnnnng.codereader.data.DraftFingerprint
+import com.lonnnnnng.codereader.data.DraftStore
 import com.lonnnnnng.codereader.data.GitOperationCancelledException
 import com.lonnnnnng.codereader.data.GitOperationProgressMonitor
 import com.lonnnnnng.codereader.data.ProjectImporter
@@ -176,6 +180,12 @@ data class ReaderTabState(
     val searchScannedLines: Int = 0,
 )
 
+/** 原文件变化时先暂停草稿恢复，避免旧内容在用户无感知的情况下覆盖新版本。 @author long */
+data class DraftConflictState(
+    val documentId: String,
+    val documentName: String,
+)
+
 /** @author long */
 data class ReaderUiState(
     val screen: AppScreen = AppScreen.HOME,
@@ -206,6 +216,7 @@ data class ReaderUiState(
     val readingStates: List<ReadingDocumentState> = emptyList(),
     val tabs: List<ReaderTabState> = emptyList(),
     val activeTabId: String? = null,
+    val draftConflict: DraftConflictState? = null,
     val readerCommand: ReaderCommand? = null,
     val theme: ReaderTheme = ReaderTheme.HIGH_CONTRAST_LIGHT,
     val settings: ReaderSettings = ReaderSettings(),
@@ -265,6 +276,7 @@ data class ReaderUiState(
 class ReaderViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = application.getSharedPreferences(PREFERENCES_NAME, Application.MODE_PRIVATE)
     private val repository = DocumentRepository(application)
+    private val draftStore = DraftStore(DraftStore.defaultDirectory(application))
     private val importer = ProjectImporter(application)
     private val updateRepository = AppUpdateRepository(application)
     private val commandIds = AtomicLong()
@@ -277,6 +289,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private var fileSearchDocumentId: String? = null
     @Volatile private var activeFileSearchRequestId: Long? = null
     private var readingStatePersistJob: Job? = null
+    private val draftPersistJobs = mutableMapOf<String, Job>()
+    private val draftPersistenceFailures = mutableSetOf<String>()
+    private var pendingDraftConflict: DocumentDraft? = null
 
     private val initialTheme = ReaderTheme.fromPreference(preferences.getString(KEY_THEME, null))
     private val initialSettings = ReaderSettings(
@@ -307,6 +322,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         fileSearchJob?.cancel()
         activeIndexJob?.cancel()
         readingStatePersistJob?.cancel()
+        val draftIdsToFlush = draftPersistJobs.keys + draftPersistenceFailures
+        draftPersistJobs.values.toList().forEach(Job::cancel)
+        draftPersistJobs.clear()
+        // 只补写仍在防抖窗口或上次失败的草稿，避免退出时重复同步所有已落盘的大文本。 @author long
+        _state.value.tabs.filter { it.dirty && it.document.id in draftIdsToFlush }.forEach { tab ->
+            runCatching { draftStore.save(tab.toDocumentDraft()) }
+        }
         persistReadingStates(_state.value.readingStates)
         repository.close()
         super.onCleared()
@@ -662,6 +684,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun closeTab(id: String) {
         if (fileSearchDocumentId == id) cancelFileSearchTask(clearState = false)
+        deleteDraft(id)
         _state.update { current ->
             val index = current.tabs.indexOfFirst { it.document.id == id }
             if (index < 0) return@update current
@@ -674,6 +697,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             current.copy(
                 tabs = remaining,
                 activeTabId = nextId,
+                draftConflict = current.draftConflict?.takeUnless { it.documentId == id },
                 screen = if (nextId == null) if (current.browserTitle != null) AppScreen.BROWSER else AppScreen.HOME else current.screen,
                 readerCommand = nextId?.let { activeId ->
                     remaining.firstOrNull { it.document.id == activeId }?.let(::commandForTab)
@@ -788,6 +812,51 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 dirty = text != tab.document.text,
             ).withoutFileSearch()
         }
+        _state.value.activeTab?.takeIf { it.document.id == tab.document.id }?.let { updated ->
+            if (updated.dirty) scheduleDraftPersistence(updated.document.id) else deleteDraft(updated.document.id)
+        }
+    }
+
+    fun restoreConflictingDraft() {
+        val conflict = _state.value.draftConflict ?: return
+        val draft = pendingDraftConflict?.takeIf { it.documentId == conflict.documentId } ?: return
+        pendingDraftConflict = null
+        _state.update { current ->
+            val tab = current.tabs.firstOrNull { it.document.id == conflict.documentId } ?: return@update current
+            current.copy(
+                tabs = current.tabs.map { item ->
+                    if (item.document.id == conflict.documentId) {
+                        item.copy(
+                            draftText = draft.draftText,
+                            dirty = draft.draftText != item.document.text,
+                            editable = item.document.canWrite,
+                            markdownPreview = false,
+                        ).withoutFileSearch()
+                    } else {
+                        item
+                    }
+                },
+                draftConflict = null,
+                message = if (tab.document.canWrite) {
+                    "已恢复 ${tab.document.name} 的草稿，请确认后保存"
+                } else {
+                    "已恢复 ${tab.document.name} 的草稿，但当前来源只读"
+                },
+            )
+        }
+        if (_state.value.tabs.any { it.document.id == conflict.documentId && it.dirty }) {
+            // 用户已明确选择旧草稿，重新以当前磁盘正文为基线保存，后续重启不再重复报同一冲突。 @author long
+            scheduleDraftPersistence(conflict.documentId)
+        } else {
+            deleteDraft(conflict.documentId)
+        }
+    }
+
+    fun discardConflictingDraft() {
+        val conflict = _state.value.draftConflict ?: return
+        pendingDraftConflict = null
+        deleteDraft(conflict.documentId)
+        _state.update { it.copy(draftConflict = null, message = "已保留文件当前内容并放弃旧草稿") }
     }
 
     fun updateEditorHistory(documentId: String, history: EditorHistoryState) {
@@ -898,8 +967,34 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val tab = _state.value.activeTab ?: return
         if (!tab.dirty) return
         launchBusy(ReaderRetryAction.Save) {
-            repository.save(tab.document, tab.draftText)
-            updateActiveTab { it.copy(dirty = false, document = it.document.copy(text = it.draftText)) }
+            val savedBytes = repository.save(tab.document, tab.draftText)
+            deleteDraft(tab.document.id)
+            updateTab(tab.document.id) { current ->
+                if (current.draftText == tab.draftText) {
+                    current.copy(
+                        dirty = false,
+                        document = current.document.copy(
+                            text = tab.draftText,
+                            totalBytes = savedBytes,
+                            loadedCharacters = tab.draftText.length.toLong(),
+                            hasMore = false,
+                        ),
+                    )
+                } else {
+                    // 保存期间若正文继续变化，新内容仍保持未保存并重新进入草稿持久化。 @author long
+                    current.copy(
+                        document = current.document.copy(
+                            text = tab.draftText,
+                            totalBytes = savedBytes,
+                            loadedCharacters = tab.draftText.length.toLong(),
+                            hasMore = false,
+                        ),
+                        dirty = true,
+                    )
+                }
+            }
+            _state.value.tabs.firstOrNull { it.document.id == tab.document.id && it.dirty }
+                ?.let { scheduleDraftPersistence(it.document.id) }
             _state.update { it.copy(message = "已保存 ${tab.document.name}") }
         }
     }
@@ -1872,17 +1967,44 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         )
     }
 
-    private fun openDocument(
+    private suspend fun openDocument(
         document: OpenDocument,
         initialLine: Int? = null,
         currentLine: Int = initialLine ?: 1,
     ) {
+        val existingBeforeOpen = _state.value.tabs.any { it.document.id == document.id }
+        val storedDraft = if (existingBeforeOpen) null else withContext(Dispatchers.IO) {
+            draftStore.load(document.id)
+        }
+        val documentFingerprint = storedDraft?.let {
+            withContext(Dispatchers.IO) { DraftFingerprint.create(document) }
+        }
+        val documentLocationKind = when (document.location) {
+            is EntryLocation.Local -> "local"
+            is EntryLocation.Saf -> "saf"
+        }
+        val recoveredDraft = storedDraft?.takeIf {
+            it.locationKind == documentLocationKind &&
+                it.draftText != document.text &&
+                it.originalFingerprint == documentFingerprint
+        }
+        val conflictingDraft = storedDraft?.takeIf {
+            it.draftText != document.text &&
+                (it.locationKind != documentLocationKind || it.originalFingerprint != documentFingerprint)
+        }
+        if (storedDraft != null && storedDraft.draftText == document.text) {
+            withContext(Dispatchers.IO) { draftStore.delete(document.id) }
+        }
+        if (conflictingDraft != null) pendingDraftConflict = conflictingDraft
         _state.update { current ->
             val existing = current.tabs.firstOrNull { it.document.id == document.id }
             val tabs = if (existing == null) {
                 current.tabs + ReaderTabState(
                     document = document,
-                    markdownPreview = document.fileType.markdown && initialLine == null,
+                    draftText = recoveredDraft?.draftText ?: document.text,
+                    editable = recoveredDraft != null && document.canWrite,
+                    dirty = recoveredDraft != null,
+                    markdownPreview = document.fileType.markdown && initialLine == null && recoveredDraft == null,
                     currentLine = currentLine,
                     cursorLine = currentLine,
                 )
@@ -1904,7 +2026,10 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 screen = AppScreen.READER,
                 tabs = tabs,
                 activeTabId = document.id,
-                message = null,
+                message = if (recoveredDraft != null) "已恢复 ${document.name} 的未保存草稿" else null,
+                draftConflict = conflictingDraft?.let {
+                    DraftConflictState(it.documentId, it.documentName)
+                } ?: current.draftConflict,
                 binaryFile = null,
                 binaryBackTarget = AppScreen.HOME,
                 errorBackTarget = AppScreen.HOME,
@@ -2061,6 +2186,58 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         preferences.edit().putString(KEY_READING_STATES, ReadingStateCodec.encode(states)).apply()
     }
 
+    /** 编辑停顿后再写草稿，既覆盖进程回收场景，也避免每个按键都触发一次文件同步。 @author long */
+    private fun scheduleDraftPersistence(documentId: String) {
+        draftPersistJobs.remove(documentId)?.cancel()
+        val job = viewModelScope.launch {
+            try {
+                delay(DRAFT_PERSIST_DELAY_MS)
+                val tab = _state.value.tabs.firstOrNull { it.document.id == documentId && it.dirty }
+                    ?: return@launch
+                try {
+                    withContext(Dispatchers.IO) { draftStore.save(tab.toDocumentDraft()) }
+                    draftPersistenceFailures.remove(documentId)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    draftPersistenceFailures += documentId
+                    _state.update { current ->
+                        if (current.tabs.any { it.document.id == documentId && it.dirty }) {
+                            current.copy(message = "草稿自动保存失败：${error.message ?: error.javaClass.simpleName}")
+                        } else {
+                            current
+                        }
+                    }
+                }
+            } finally {
+                if (draftPersistJobs[documentId] === coroutineContext[Job]) {
+                    draftPersistJobs.remove(documentId)
+                }
+            }
+        }
+        draftPersistJobs[documentId] = job
+    }
+
+    /** 保存成功、撤销回原文或明确放弃标签后，旧草稿不能在下次打开时再次出现。 @author long */
+    private fun deleteDraft(documentId: String) {
+        draftPersistJobs.remove(documentId)?.cancel()
+        draftPersistenceFailures.remove(documentId)
+        if (pendingDraftConflict?.documentId == documentId) pendingDraftConflict = null
+        runCatching { draftStore.delete(documentId) }
+    }
+
+    private fun ReaderTabState.toDocumentDraft(): DocumentDraft = DocumentDraft(
+        locationKind = when (document.location) {
+            is EntryLocation.Local -> "local"
+            is EntryLocation.Saf -> "saf"
+        },
+        documentId = document.id,
+        documentName = document.name,
+        draftText = draftText,
+        originalFingerprint = DraftFingerprint.create(document),
+        updatedAtEpochMillis = System.currentTimeMillis(),
+    )
+
     private fun launchBusy(
         retryAction: ReaderRetryAction? = null,
         block: suspend () -> Unit,
@@ -2150,6 +2327,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             val detail = error.message ?: error.javaClass.simpleName
             // 文件提供方的异常类型不统一，标题同时参考异常类型和稳定中文错误片段。
             val title = when {
+                error is DocumentSaveException && error.originalMayBeAffected -> "保存失败，原文件可能已受影响"
+                retryAction == ReaderRetryAction.Save -> "保存文件失败"
                 error is SecurityException || "权限" in detail || "授权" in detail -> "文件访问权限已经失效"
                 error is FileNotFoundException || "不存在" in detail -> "文件或项目已经不存在"
                 error is IOException || "无法读取" in detail || "读取失败" in detail -> "读取内容失败"
@@ -2197,6 +2376,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         const val KEY_RECENT_PROJECTS = "recent_projects"
         const val KEY_READING_STATES = "reading_states"
         const val READING_STATE_PERSIST_DELAY_MS = 450L
+        const val DRAFT_PERSIST_DELAY_MS = 500L
         const val MIN_FONT_SIZE = 11f
         const val MAX_FONT_SIZE = 24f
         const val MAX_RECENT_PROJECTS = 6

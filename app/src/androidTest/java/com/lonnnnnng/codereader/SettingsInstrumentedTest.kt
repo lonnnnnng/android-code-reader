@@ -195,7 +195,7 @@ class SettingsInstrumentedTest {
         }
         composeRule.onNodeWithTag("exit-confirmation-dialog").assertIsDisplayed()
         composeRule.onNodeWithText("退出灵阅？").assertIsDisplayed()
-        composeRule.onNodeWithText("未保存的修改不会自动保存", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("未保存修改会作为草稿保留", substring = true).assertIsDisplayed()
 
         composeRule.onNodeWithTag("exit-cancel-button").performClick()
         composeRule.onNodeWithText("打开内容").assertIsDisplayed()

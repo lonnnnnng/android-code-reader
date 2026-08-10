@@ -264,6 +264,8 @@ fun ReaderApp(viewModel: ReaderViewModel) {
         val operation = state.operation
         if (operation != null) {
             if (operation.cancellable) viewModel.cancelOperation()
+        } else if (state.draftConflict != null) {
+            // 冲突必须明确选择文件版本或草稿版本，系统返回不能把决定隐藏到后台。 @author long
         } else if (showExitConfirmation) {
             showExitConfirmation = false
         } else if (showGitDialog) {
@@ -467,7 +469,36 @@ fun ReaderApp(viewModel: ReaderViewModel) {
                 },
             ) {
                 Text(
-                    "未保存的修改不会自动保存，确定要退出应用吗？",
+                    "未保存修改会作为草稿保留，并在下次打开文件时恢复。确定要退出应用吗？",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        state.draftConflict?.let { conflict ->
+            ReaderDialog(
+                onDismissRequest = {},
+                modifier = Modifier.testTag("draft-conflict-dialog"),
+                title = "发现未保存草稿",
+                icon = Icons.Outlined.History,
+                actions = {
+                    TextButton(
+                        onClick = viewModel::discardConflictingDraft,
+                        modifier = Modifier.testTag("discard-conflicting-draft-button"),
+                    ) {
+                        Text("放弃草稿")
+                    }
+                    Button(
+                        onClick = viewModel::restoreConflictingDraft,
+                        modifier = Modifier.testTag("restore-conflicting-draft-button"),
+                    ) {
+                        Text("恢复草稿")
+                    }
+                },
+            ) {
+                Text(
+                    "${conflict.documentName} 在草稿生成后已被其他操作修改。为避免覆盖新内容，灵阅没有自动恢复，请选择要继续使用的版本。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -2804,7 +2835,7 @@ private fun ReaderScreen(
                 },
             ) {
                 Text(
-                    "${tab.document.name} 还有未保存内容，关闭后无法恢复。",
+                    "${tab.document.name} 还有未保存内容；放弃并关闭后，对应自动草稿也会删除且无法恢复。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
