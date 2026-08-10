@@ -51,6 +51,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.FormatIndentDecrease
+import androidx.compose.material.icons.automirrored.outlined.FormatIndentIncrease
 import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.automirrored.outlined.ManageSearch
@@ -68,10 +70,13 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.ContentCut
+import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.FindInPage
@@ -87,6 +92,7 @@ import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.SelectAll
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Sync
@@ -335,6 +341,11 @@ fun ReaderApp(viewModel: ReaderViewModel) {
                             onSetAppPalette = viewModel::setAppPalette,
                             onSetTheme = viewModel::setTheme,
                             onSetWordWrap = viewModel::setWordWrap,
+                            onSetEditorTabWidth = viewModel::setEditorTabWidth,
+                            onSetEditorIndentStyle = viewModel::setEditorIndentStyle,
+                            onSetEditorAutoIndent = viewModel::setEditorAutoIndent,
+                            onSetEditorAutoClosePairs = viewModel::setEditorAutoClosePairs,
+                            onSetEditorOptimizePasteIndentation = viewModel::setEditorOptimizePasteIndentation,
                             onOpenSettingsPage = viewModel::openSettingsPage,
                             onCheckUpdate = viewModel::checkForUpdate,
                             onShowUpdateDetails = viewModel::showUpdateDetails,
@@ -364,6 +375,7 @@ fun ReaderApp(viewModel: ReaderViewModel) {
                             onSave = viewModel::save,
                             onUndo = viewModel::undo,
                             onRedo = viewModel::redo,
+                            onEditorCommand = viewModel::runEditorCommand,
                             onReplaceCurrent = viewModel::replaceCurrent,
                             onReplaceAll = viewModel::replaceAll,
                             onTogglePreview = viewModel::toggleMarkdownPreview,
@@ -1137,6 +1149,11 @@ private fun SettingsScreen(
     onSetAppPalette: (AppColorPalette) -> Unit,
     onSetTheme: (ReaderTheme) -> Unit,
     onSetWordWrap: (Boolean) -> Unit,
+    onSetEditorTabWidth: (Int) -> Unit,
+    onSetEditorIndentStyle: (EditorIndentStyle) -> Unit,
+    onSetEditorAutoIndent: (Boolean) -> Unit,
+    onSetEditorAutoClosePairs: (Boolean) -> Unit,
+    onSetEditorOptimizePasteIndentation: (Boolean) -> Unit,
     onOpenSettingsPage: (SettingsPage) -> Unit,
     onCheckUpdate: () -> Unit,
     onShowUpdateDetails: () -> Unit,
@@ -1147,6 +1164,7 @@ private fun SettingsScreen(
     val (title, subtitle) = when (state.settingsPage) {
         SettingsPage.ROOT -> "设置" to "按类型管理应用偏好"
         SettingsPage.READING -> "阅读与显示" to "源码与 Markdown"
+        SettingsPage.EDITOR -> "编辑器" to "输入辅助与缩进"
         SettingsPage.APPEARANCE -> "应用外观" to "配色与明暗模式"
         SettingsPage.UPDATE -> "关于与更新" to "版本与在线更新"
     }
@@ -1169,6 +1187,14 @@ private fun SettingsScreen(
                     modifier = modifier,
                 )
             }
+            SettingsPage.EDITOR -> EditorSettingsList(
+                settings = state.settings,
+                onSetTabWidth = onSetEditorTabWidth,
+                onSetIndentStyle = onSetEditorIndentStyle,
+                onSetAutoIndent = onSetEditorAutoIndent,
+                onSetAutoClosePairs = onSetEditorAutoClosePairs,
+                onSetOptimizePasteIndentation = onSetEditorOptimizePasteIndentation,
+            )
             SettingsPage.APPEARANCE -> SettingsWithPreview(
                 state = state,
                 pageTag = "settings-page-appearance",
@@ -1214,6 +1240,16 @@ private fun SettingsCategoryList(
                     icon = Icons.Outlined.Visibility,
                     testTag = "settings-category-reading",
                     onClick = { onOpenPage(SettingsPage.READING) },
+                )
+            }
+            item { SettingsNavigationDivider() }
+            item {
+                SettingsCategoryRow(
+                    title = "编辑器",
+                    summary = "Tab ${state.settings.tabWidth} · ${state.settings.indentStyle.displayName}缩进 · ${if (state.settings.autoIndent) "自动缩进" else "手动缩进"}",
+                    icon = Icons.Outlined.EditNote,
+                    testTag = "settings-category-editor",
+                    onClick = { onOpenPage(SettingsPage.EDITOR) },
                 )
             }
             item { SettingsNavigationDivider() }
@@ -1404,6 +1440,126 @@ private fun ReadingSettingsList(
                     }
                 }
             }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EditorSettingsList(
+    settings: ReaderSettings,
+    onSetTabWidth: (Int) -> Unit,
+    onSetIndentStyle: (EditorIndentStyle) -> Unit,
+    onSetAutoIndent: (Boolean) -> Unit,
+    onSetAutoClosePairs: (Boolean) -> Unit,
+    onSetOptimizePasteIndentation: (Boolean) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxSize().testTag("settings-page-editor")) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().testTag("settings-list"),
+            contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
+        ) {
+            item { SettingsSectionHeader("输入与缩进", "修改后立即应用到当前源码标签，无需重新打开文件") }
+            item {
+                SettingsDropdownField(
+                    label = "Tab 宽度",
+                    selected = settings.tabWidth,
+                    options = listOf(2, 4, 8),
+                    optionKey = { it.toString() },
+                    optionTitle = { "$it 个字符" },
+                    optionSummary = { "Tab 展示和每一级缩进按 $it 列计算" },
+                    selectorTag = "tab-width-selector",
+                    optionTagPrefix = "tab-width",
+                    onSelected = onSetTabWidth,
+                    leading = { width ->
+                        Text(
+                            width.toString(),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                    },
+                )
+            }
+            item {
+                SettingsDropdownField(
+                    label = "缩进方式",
+                    selected = settings.indentStyle,
+                    options = EditorIndentStyle.entries,
+                    optionKey = EditorIndentStyle::preferenceValue,
+                    optionTitle = EditorIndentStyle::displayName,
+                    optionSummary = EditorIndentStyle::description,
+                    selectorTag = "indent-style-selector",
+                    optionTagPrefix = "indent-style",
+                    onSelected = onSetIndentStyle,
+                    leading = { style ->
+                        Text(
+                            if (style.usesTabs) "→" else "··",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                    },
+                )
+            }
+            item {
+                SettingsToggleRow(
+                    title = "自动缩进",
+                    summary = "换行时沿用当前层级，并识别常见代码块起始符",
+                    checked = settings.autoIndent,
+                    onCheckedChange = onSetAutoIndent,
+                    tag = "auto-indent-setting",
+                )
+            }
+            item {
+                SettingsToggleRow(
+                    title = "括号与引号补全",
+                    summary = "输入起始符时自动插入匹配的结束符",
+                    checked = settings.autoClosePairs,
+                    onCheckedChange = onSetAutoClosePairs,
+                    tag = "auto-close-pairs-setting",
+                )
+            }
+            item {
+                SettingsToggleRow(
+                    title = "优化多行粘贴缩进",
+                    summary = "移除公共外层缩进，再对齐当前代码行并保留内部层级",
+                    checked = settings.optimizePasteIndentation,
+                    onCheckedChange = onSetOptimizePasteIndentation,
+                    tag = "paste-indent-setting",
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsToggleRow(
+    title: String,
+    summary: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    tag: String,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 5.dp)
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange)
+            .semantics { stateDescription = if (checked) "已开启$title" else "已关闭$title" }
+            .testTag(tag),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(checked = checked, onCheckedChange = null, modifier = Modifier.clearAndSetSemantics {})
+        }
     }
 }
 
@@ -2404,6 +2560,7 @@ private fun ReaderScreen(
     onSave: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
+    onEditorCommand: (ReaderCommandType) -> Unit,
     onReplaceCurrent: (String) -> Unit,
     onReplaceAll: (String) -> Unit,
     onTogglePreview: () -> Unit,
@@ -2443,6 +2600,7 @@ private fun ReaderScreen(
     var showGotoLine by remember { mutableStateOf(false) }
     var showEncoding by remember { mutableStateOf(false) }
     var showBookmarks by remember { mutableStateOf(false) }
+    var showEditorActions by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var pendingCloseTabId by remember { mutableStateOf<String?>(null) }
     val projectPath = state.projectEntries.firstOrNull { it.source.id == document.id }?.path
@@ -2695,6 +2853,7 @@ private fun ReaderScreen(
                     onUndo = onUndo,
                     onRedo = onRedo,
                     onSave = onSave,
+                    onOpenEditorActions = { showEditorActions = true },
                 )
             }
         }
@@ -2742,6 +2901,11 @@ private fun ReaderScreen(
                 fontSizeSp = state.settings.fontSizeSp,
                 backgroundColorArgb = state.settings.background.colorArgb(state.theme.isDark),
                 wordWrap = state.settings.wordWrap,
+                autoIndent = state.settings.autoIndent,
+                autoClosePairs = state.settings.autoClosePairs,
+                tabWidth = state.settings.tabWidth,
+                indentWithTabs = state.settings.indentStyle.usesTabs,
+                optimizePasteIndentation = state.settings.optimizePasteIndentation,
                 command = state.readerCommand,
                 onTextChanged = onTextChanged,
                 onHistoryChanged = onEditorHistoryChanged,
@@ -2810,6 +2974,16 @@ private fun ReaderScreen(
             },
             onRemoveFile = onRemoveFileBookmark,
             onRemoveLine = { line -> onRemoveLineBookmark(document.id, line) },
+        )
+    }
+    if (showEditorActions) {
+        EditorActionsSheet(
+            editable = state.editable,
+            onDismiss = { showEditorActions = false },
+            onCommand = { command ->
+                showEditorActions = false
+                onEditorCommand(command)
+            },
         )
     }
     pendingCloseTabId?.let { tabId ->
@@ -3338,6 +3512,7 @@ internal fun ReaderActionBar(
     onUndo: () -> Unit = {},
     onRedo: () -> Unit = {},
     onSave: () -> Unit,
+    onOpenEditorActions: () -> Unit = {},
 ) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
         Row(
@@ -3381,6 +3556,14 @@ internal fun ReaderActionBar(
                 stateDescription = if (editable) "编辑已开启" else "当前为只读模式",
                 onClick = onToggleEditable,
             )
+            if (!markdownPreview) {
+                ReaderActionButton(
+                    icon = Icons.Outlined.EditNote,
+                    contentDescription = "编辑操作",
+                    stateDescription = if (editable) "可执行全部编辑操作" else "只读状态仅可选中和复制",
+                    onClick = onOpenEditorActions,
+                )
+            }
             if (editable && !markdownPreview) {
                 ReaderActionButton(
                     icon = Icons.AutoMirrored.Outlined.Undo,
@@ -3456,6 +3639,133 @@ private fun ReaderActionButton(
                 contentDescription = contentDescription,
                 modifier = Modifier.size(ReaderDimens.readerActionIconSize),
             )
+        }
+    }
+}
+
+/** 常用编辑命令集中到一个底部面板，工具栏只保留单一入口以维持小屏信息密度。 @author long */
+@Composable
+internal fun EditorActionsSheet(
+    editable: Boolean,
+    onDismiss: () -> Unit,
+    onCommand: (ReaderCommandType) -> Unit,
+) {
+    ReaderBottomSheet(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.testTag("editor-actions-sheet"),
+    ) {
+        ReaderSheetHeader(title = "编辑操作", icon = Icons.Outlined.EditNote)
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp).testTag("editor-actions-list"),
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp),
+        ) {
+            item { SettingsSectionHeader("选择与剪贴板", "只读源码也可以选中当前行和复制内容") }
+            item {
+                EditorActionSheetRow(
+                    title = "选中当前行",
+                    summary = "从行首选到行尾，便于继续复制或剪切",
+                    icon = Icons.Outlined.SelectAll,
+                    enabled = true,
+                    tag = "editor-action-select-line",
+                    onClick = { onCommand(ReaderCommandType.SELECT_LINE) },
+                )
+            }
+            item {
+                EditorActionSheetRow(
+                    title = "复制",
+                    summary = "复制选中内容；未选择时复制当前行",
+                    icon = Icons.Outlined.ContentCopy,
+                    enabled = true,
+                    tag = "editor-action-copy",
+                    onClick = { onCommand(ReaderCommandType.COPY) },
+                )
+            }
+            item {
+                EditorActionSheetRow(
+                    title = "剪切",
+                    summary = if (editable) "剪切选中内容到系统剪贴板" else "进入编辑模式后可用",
+                    icon = Icons.Outlined.ContentCut,
+                    enabled = editable,
+                    tag = "editor-action-cut",
+                    onClick = { onCommand(ReaderCommandType.CUT) },
+                )
+            }
+            item {
+                EditorActionSheetRow(
+                    title = "粘贴",
+                    summary = if (editable) "在光标位置粘贴，并按设置优化多行缩进" else "进入编辑模式后可用",
+                    icon = Icons.Outlined.ContentPaste,
+                    enabled = editable,
+                    tag = "editor-action-paste",
+                    onClick = { onCommand(ReaderCommandType.PASTE) },
+                )
+            }
+            item { SettingsSectionHeader("行与缩进", "修改操作会进入同一份撤销历史") }
+            item {
+                EditorActionSheetRow(
+                    title = "删除当前行",
+                    summary = if (editable) "删除完整一行，不覆盖系统剪贴板" else "进入编辑模式后可用",
+                    icon = Icons.Outlined.DeleteOutline,
+                    enabled = editable,
+                    tag = "editor-action-delete-line",
+                    onClick = { onCommand(ReaderCommandType.DELETE_LINE) },
+                )
+            }
+            item {
+                EditorActionSheetRow(
+                    title = "增加缩进",
+                    summary = if (editable) "按当前 Tab 宽度和缩进方式调整当前行或选中行" else "进入编辑模式后可用",
+                    icon = Icons.AutoMirrored.Outlined.FormatIndentIncrease,
+                    enabled = editable,
+                    tag = "editor-action-indent",
+                    onClick = { onCommand(ReaderCommandType.INDENT) },
+                )
+            }
+            item {
+                EditorActionSheetRow(
+                    title = "减少缩进",
+                    summary = if (editable) "移除选中行或当前行的一级缩进" else "进入编辑模式后可用",
+                    icon = Icons.AutoMirrored.Outlined.FormatIndentDecrease,
+                    enabled = editable,
+                    tag = "editor-action-unindent",
+                    onClick = { onCommand(ReaderCommandType.UNINDENT) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditorActionSheetRow(
+    title: String,
+    summary: String,
+    icon: ImageVector,
+    enabled: Boolean,
+    tag: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            .alpha(if (enabled) 1f else 0.5f)
+            .testTag(tag),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().heightIn(min = ReaderDimens.compactRowMinHeight).padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            ReaderIconBadge(icon = icon, tone = ReaderBadgeTone.SECONDARY, compact = true)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (!enabled) Icon(Icons.Outlined.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

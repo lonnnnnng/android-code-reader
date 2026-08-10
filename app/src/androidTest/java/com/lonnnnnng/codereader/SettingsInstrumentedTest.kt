@@ -2,6 +2,7 @@ package com.lonnnnnng.codereader
 
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasTestTag
@@ -18,6 +19,9 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.lifecycle.Lifecycle
 import com.lonnnnnng.codereader.ui.ReaderDimens
+import com.lonnnnnng.codereader.ui.EditorIndentStyle
+import com.lonnnnnng.codereader.ui.ReaderSettings
+import com.lonnnnnng.codereader.ui.ReaderViewModel
 import org.junit.Rule
 import org.junit.Test
 import org.junit.Assert.assertEquals
@@ -28,6 +32,36 @@ import org.junit.Assert.assertTrue
 class SettingsInstrumentedTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<MainActivity>()
+
+    @Test
+    fun editorInputPreferencesUseDedicatedPageAndPersist() {
+        composeRule.onNodeWithContentDescription("设置").performClick()
+        composeRule.onNodeWithTag("settings-category-editor").performClick()
+        composeRule.onNodeWithTag("settings-page-editor").assertIsDisplayed()
+
+        selectDropdown("tab-width-selector", "tab-width-2")
+        selectDropdown("indent-style-selector", "indent-style-tabs")
+        setToggle("auto-indent-setting", enabled = false)
+        setToggle("auto-close-pairs-setting", enabled = false)
+        setToggle("paste-indent-setting", enabled = false)
+
+        lateinit var restored: ReaderSettings
+        composeRule.activityRule.scenario.onActivity { activity ->
+            restored = ReaderViewModel(activity.application).state.value.settings
+        }
+        assertEquals(2, restored.tabWidth)
+        assertEquals(EditorIndentStyle.TABS, restored.indentStyle)
+        assertTrue(!restored.autoIndent)
+        assertTrue(!restored.autoClosePairs)
+        assertTrue(!restored.optimizePasteIndentation)
+
+        // 恢复产品默认值，避免持久化编辑偏好改变后续 Sora 行为测试。 @author long
+        selectDropdown("tab-width-selector", "tab-width-4")
+        selectDropdown("indent-style-selector", "indent-style-spaces")
+        setToggle("auto-indent-setting", enabled = true)
+        setToggle("auto-close-pairs-setting", enabled = true)
+        setToggle("paste-indent-setting", enabled = true)
+    }
 
     @Test
     fun displayPreferencesCanPersistAfterActivityRecreation() {
@@ -227,5 +261,15 @@ class SettingsInstrumentedTest {
     private fun assertDropdownValue(selectorTag: String, value: String) {
         composeRule.onNodeWithTag("settings-list").performScrollToNode(hasTestTag(selectorTag))
         composeRule.onNodeWithTag(selectorTag).assertTextContains(value)
+    }
+
+    private fun setToggle(tag: String, enabled: Boolean) {
+        composeRule.onNodeWithTag("settings-list").performScrollToNode(hasTestTag(tag))
+        val node = composeRule.onNodeWithTag(tag)
+        val current = node.fetchSemanticsNode().config[SemanticsProperties.ToggleableState]
+        val expected = if (enabled) ToggleableState.On else ToggleableState.Off
+        if (current != expected) node.performClick()
+        composeRule.waitForIdle()
+        assertEquals(expected, node.fetchSemanticsNode().config[SemanticsProperties.ToggleableState])
     }
 }

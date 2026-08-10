@@ -413,6 +413,13 @@ private fun handleMarkdownCommand(
         }
         ReaderCommandType.UNDO,
         ReaderCommandType.REDO,
+        ReaderCommandType.SELECT_LINE,
+        ReaderCommandType.DELETE_LINE,
+        ReaderCommandType.COPY,
+        ReaderCommandType.CUT,
+        ReaderCommandType.PASTE,
+        ReaderCommandType.INDENT,
+        ReaderCommandType.UNINDENT,
         ReaderCommandType.REPLACE_CURRENT,
         ReaderCommandType.REPLACE_ALL,
         ReaderCommandType.GOTO_SEARCH_MATCH -> Unit

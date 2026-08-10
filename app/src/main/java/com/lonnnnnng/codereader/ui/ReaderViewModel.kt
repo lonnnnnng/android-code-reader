@@ -84,12 +84,44 @@ internal fun isSafDocumentInsideTree(documentUri: Uri, treeUri: Uri): Boolean = 
 enum class AppScreen { HOME, RECENT, SETTINGS, BROWSER, READER, BINARY, ERROR }
 
 /** 设置采用一级分类、二级详情，返回时先退回分类页再离开设置。 @author long */
-enum class SettingsPage { ROOT, READING, APPEARANCE, UPDATE }
+enum class SettingsPage { ROOT, READING, EDITOR, APPEARANCE, UPDATE }
+
+/** 编辑器只提供稳定的空格或 Tab 缩进策略，不暴露 Sora 的内部实现选项。 @author long */
+enum class EditorIndentStyle(
+    val preferenceValue: String,
+    val displayName: String,
+    val description: String,
+) {
+    SPACES("spaces", "空格", "用空格表达每一级缩进，跨平台显示更稳定"),
+    TABS("tabs", "Tab", "保留制表符，适合明确约定 Tab 缩进的项目"),
+    ;
+
+    val usesTabs: Boolean get() = this == TABS
+
+    companion object {
+        fun fromPreference(value: String?): EditorIndentStyle = entries.firstOrNull {
+            it.preferenceValue == value
+        } ?: SPACES
+    }
+}
+
+/** Tab 宽度限定为产品提供的三个档位，旧配置或异常值统一回到 4。 @author long */
+internal fun normalizeEditorTabWidth(value: Int): Int = when (value) {
+    2, 4, 8 -> value
+    else -> 4
+}
 
 /** @author long */
 enum class ReaderCommandType {
     UNDO,
     REDO,
+    SELECT_LINE,
+    DELETE_LINE,
+    COPY,
+    CUT,
+    PASTE,
+    INDENT,
+    UNINDENT,
     REPLACE_CURRENT,
     REPLACE_ALL,
     SEARCH_FORWARD,
@@ -120,6 +152,11 @@ data class ReaderSettings(
     val wordWrap: Boolean = false,
     val background: ReaderBackground = ReaderBackground.FOLLOW_THEME,
     val appPalette: AppColorPalette = AppColorPalette.EMERALD,
+    val tabWidth: Int = 4,
+    val indentStyle: EditorIndentStyle = EditorIndentStyle.SPACES,
+    val autoIndent: Boolean = true,
+    val autoClosePairs: Boolean = true,
+    val optimizePasteIndentation: Boolean = true,
 )
 
 /** 长耗时操作在全局遮罩中持续展示阶段、进度和取消能力，避免用户误以为应用没有响应。 @author long */
@@ -299,6 +336,11 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         wordWrap = preferences.getBoolean(KEY_WORD_WRAP, false),
         background = ReaderBackground.fromPreference(preferences.getString(KEY_READER_BACKGROUND, null)),
         appPalette = AppColorPalette.fromPreference(preferences.getString(KEY_APP_PALETTE, null)),
+        tabWidth = normalizeEditorTabWidth(preferences.getInt(KEY_EDITOR_TAB_WIDTH, 4)),
+        indentStyle = EditorIndentStyle.fromPreference(preferences.getString(KEY_EDITOR_INDENT_STYLE, null)),
+        autoIndent = preferences.getBoolean(KEY_EDITOR_AUTO_INDENT, true),
+        autoClosePairs = preferences.getBoolean(KEY_EDITOR_AUTO_CLOSE_PAIRS, true),
+        optimizePasteIndentation = preferences.getBoolean(KEY_EDITOR_OPTIMIZE_PASTE_INDENTATION, true),
     )
     private val initialRecentProjects = RecentProjectPolicy.normalize(
         RecentProjectCodec.decode(preferences.getString(KEY_RECENT_PROJECTS, null)),
@@ -871,6 +913,32 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     fun undo() = dispatchEditingCommand(ReaderCommandType.UNDO, _state.value.canUndo)
 
     fun redo() = dispatchEditingCommand(ReaderCommandType.REDO, _state.value.canRedo)
+
+    /**
+     * 操作面板只分发源码视图支持的有限命令；只读状态仍可选中和复制，但不会触发任何正文修改。
+     *
+     * @author long
+     */
+    fun runEditorCommand(type: ReaderCommandType) {
+        val tab = _state.value.activeTab ?: return
+        if (type !in EDITOR_ACTION_COMMANDS) return
+        val unavailableMessage = when {
+            tab.markdownPreview -> "Markdown 预览不支持该操作，请先切换到源码"
+            type in MUTATING_EDITOR_ACTION_COMMANDS && !tab.editable -> "请先进入编辑模式"
+            else -> null
+        }
+        if (unavailableMessage != null) {
+            _state.update { it.copy(message = unavailableMessage) }
+            return
+        }
+        dispatchCommand(
+            ReaderCommand(
+                id = commandIds.incrementAndGet(),
+                type = type,
+                targetDocumentId = tab.document.id,
+            ),
+        )
+    }
 
     fun replaceCurrent(replacement: String) {
         val tab = editableSearchTab() ?: return
@@ -1549,6 +1617,32 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     fun setWordWrap(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_WORD_WRAP, enabled).apply()
         _state.update { it.copy(settings = it.settings.copy(wordWrap = enabled)) }
+    }
+
+    fun setEditorTabWidth(width: Int) {
+        val normalized = normalizeEditorTabWidth(width)
+        preferences.edit().putInt(KEY_EDITOR_TAB_WIDTH, normalized).apply()
+        _state.update { it.copy(settings = it.settings.copy(tabWidth = normalized)) }
+    }
+
+    fun setEditorIndentStyle(style: EditorIndentStyle) {
+        preferences.edit().putString(KEY_EDITOR_INDENT_STYLE, style.preferenceValue).apply()
+        _state.update { it.copy(settings = it.settings.copy(indentStyle = style)) }
+    }
+
+    fun setEditorAutoIndent(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_EDITOR_AUTO_INDENT, enabled).apply()
+        _state.update { it.copy(settings = it.settings.copy(autoIndent = enabled)) }
+    }
+
+    fun setEditorAutoClosePairs(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_EDITOR_AUTO_CLOSE_PAIRS, enabled).apply()
+        _state.update { it.copy(settings = it.settings.copy(autoClosePairs = enabled)) }
+    }
+
+    fun setEditorOptimizePasteIndentation(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_EDITOR_OPTIMIZE_PASTE_INDENTATION, enabled).apply()
+        _state.update { it.copy(settings = it.settings.copy(optimizePasteIndentation = enabled)) }
     }
 
     fun setReaderBackground(background: ReaderBackground) {
@@ -2373,6 +2467,11 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         const val KEY_WORD_WRAP = "reader_word_wrap"
         const val KEY_READER_BACKGROUND = "reader_background"
         const val KEY_APP_PALETTE = "app_color_palette"
+        const val KEY_EDITOR_TAB_WIDTH = "editor_tab_width"
+        const val KEY_EDITOR_INDENT_STYLE = "editor_indent_style"
+        const val KEY_EDITOR_AUTO_INDENT = "editor_auto_indent"
+        const val KEY_EDITOR_AUTO_CLOSE_PAIRS = "editor_auto_close_pairs"
+        const val KEY_EDITOR_OPTIMIZE_PASTE_INDENTATION = "editor_optimize_paste_indentation"
         const val KEY_RECENT_PROJECTS = "recent_projects"
         const val KEY_READING_STATES = "reading_states"
         const val READING_STATE_PERSIST_DELAY_MS = 450L
@@ -2382,5 +2481,22 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         const val MAX_RECENT_PROJECTS = 6
         const val FILE_SEARCH_STORED_MATCH_LIMIT = 10_000
         const val FILE_SEARCH_PROGRESS_LINE_BATCH = 512
+
+        val EDITOR_ACTION_COMMANDS = setOf(
+            ReaderCommandType.SELECT_LINE,
+            ReaderCommandType.DELETE_LINE,
+            ReaderCommandType.COPY,
+            ReaderCommandType.CUT,
+            ReaderCommandType.PASTE,
+            ReaderCommandType.INDENT,
+            ReaderCommandType.UNINDENT,
+        )
+        val MUTATING_EDITOR_ACTION_COMMANDS = setOf(
+            ReaderCommandType.DELETE_LINE,
+            ReaderCommandType.CUT,
+            ReaderCommandType.PASTE,
+            ReaderCommandType.INDENT,
+            ReaderCommandType.UNINDENT,
+        )
     }
 }

@@ -9,12 +9,14 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertWidthIsEqualTo
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.unit.dp
 import com.lonnnnnng.codereader.model.AppColorPalette
@@ -272,6 +274,7 @@ class DialogLayoutInstrumentedTest {
     fun editorActionBarReflectsUndoAndRedoAvailability() {
         var undoRequested = false
         var redoRequested = false
+        var editorActionsRequested = false
         composeRule.setContent {
             MaterialTheme(
                 colorScheme = appColorScheme(ReaderTheme.HIGH_CONTRAST_LIGHT, AppColorPalette.EMERALD),
@@ -295,16 +298,55 @@ class DialogLayoutInstrumentedTest {
                     onUndo = { undoRequested = true },
                     onRedo = { redoRequested = true },
                     onSave = {},
+                    onOpenEditorActions = { editorActionsRequested = true },
                 )
             }
         }
 
         composeRule.onNodeWithContentDescription("撤销").assertIsEnabled().performClick()
         composeRule.onNodeWithContentDescription("重做").assertIsNotEnabled()
+        composeRule.onNodeWithContentDescription("编辑操作").assertIsEnabled().performClick()
         composeRule.runOnIdle {
             assertTrue(undoRequested)
             assertTrue(!redoRequested)
+            assertTrue(editorActionsRequested)
         }
+    }
+
+    @Test
+    fun editorActionsSheetKeepsReadOnlyCommandsAvailableAndProtectsMutations() {
+        val editable = mutableStateOf(false)
+        var requestedCommand: ReaderCommandType? = null
+        composeRule.setContent {
+            MaterialTheme(
+                colorScheme = appColorScheme(ReaderTheme.HIGH_CONTRAST_LIGHT, AppColorPalette.EMERALD),
+                typography = ReaderTypography,
+                shapes = ReaderShapes,
+            ) {
+                EditorActionsSheet(
+                    editable = editable.value,
+                    onDismiss = {},
+                    onCommand = { requestedCommand = it },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("editor-action-select-line").assertIsEnabled()
+        composeRule.onNodeWithTag("editor-action-copy").assertIsEnabled().performClick()
+        composeRule.onNodeWithTag("editor-action-cut").assertIsNotEnabled()
+        composeRule.onNodeWithTag("editor-action-paste").assertIsNotEnabled()
+        composeRule.runOnIdle { assertTrue(requestedCommand == ReaderCommandType.COPY) }
+
+        composeRule.runOnIdle { editable.value = true }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("editor-action-cut").assertIsEnabled()
+        composeRule.onNodeWithTag("editor-action-paste").assertIsEnabled()
+        composeRule.onNodeWithTag("editor-actions-list")
+            .performScrollToNode(hasTestTag("editor-action-unindent"))
+        composeRule.onNodeWithTag("editor-action-delete-line").assertIsEnabled()
+        composeRule.onNodeWithTag("editor-action-indent").assertIsEnabled()
+        composeRule.onNodeWithTag("editor-action-unindent").assertIsEnabled().performClick()
+        composeRule.runOnIdle { assertTrue(requestedCommand == ReaderCommandType.UNINDENT) }
     }
 
     @Test

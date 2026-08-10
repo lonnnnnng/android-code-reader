@@ -12,7 +12,6 @@ import com.lonnnnnng.codereader.syntax.SyntaxRegistry
 import io.github.rosemoe.sora.event.ContentChangeEvent
 import io.github.rosemoe.sora.event.ScrollEvent
 import io.github.rosemoe.sora.event.SelectionChangeEvent
-import io.github.rosemoe.sora.lang.EmptyLanguage
 import io.github.rosemoe.sora.widget.CodeEditor
 import io.github.rosemoe.sora.widget.EditorSearcher
 import io.github.rosemoe.sora.widget.schemes.EditorColorScheme
@@ -45,6 +44,9 @@ private class EditorDocumentBinding {
     val reportedLines = mutableMapOf<String, Int>()
     val reportedCursorLines = mutableMapOf<String, Int>()
     val historyStates = mutableMapOf<String, EditorHistoryState>()
+    var languageFileType: FileType? = null
+    var languageTabWidth: Int = 0
+    var languageIndentWithTabs: Boolean = false
 }
 
 /**
@@ -61,6 +63,11 @@ fun CodeEditorView(
     fontSizeSp: Float,
     backgroundColorArgb: Int,
     wordWrap: Boolean,
+    autoIndent: Boolean = true,
+    autoClosePairs: Boolean = true,
+    tabWidth: Int = 4,
+    indentWithTabs: Boolean = false,
+    optimizePasteIndentation: Boolean = true,
     command: ReaderCommand?,
     onTextChanged: (String) -> Unit,
     onHistoryChanged: (String, EditorHistoryState) -> Unit = { _, _ -> },
@@ -79,10 +86,17 @@ fun CodeEditorView(
     AndroidView(
         modifier = modifier,
         factory = { context ->
-            CodeEditor(context).apply {
+            ReaderCodeEditor(context).apply {
                 setTextSize(fontSizeSp)
                 isWordwrap = wordWrap
                 isLineNumberEnabled = true
+                applyEditorInputSettings(
+                    autoIndent = autoIndent,
+                    autoClosePairs = autoClosePairs,
+                    tabWidth = tabWidth,
+                    indentWithTabs = indentWithTabs,
+                    optimizePasteIndentation = optimizePasteIndentation,
+                )
                 colorScheme = SyntaxRegistry.createColorScheme()
                 applyReaderAppearance(backgroundColorArgb)
                 searcher.setEnsureOccurrenceVisible(true)
@@ -139,7 +153,7 @@ fun CodeEditorView(
                 binding.suppressPositionCallback = true
                 binding.documentId = documentId
                 binding.commandId = null
-                editor.setEditorLanguage(SyntaxRegistry.createLanguage(fileType) ?: EmptyLanguage())
+                applyEditorLanguage(editor, binding, fileType, tabWidth, indentWithTabs, force = true)
                 replaceEditorText(editor, binding, text)
                 binding.searchQuery = null
                 binding.searchOptions = null
@@ -165,6 +179,14 @@ fun CodeEditorView(
             editor.applyReaderAppearance(backgroundColorArgb)
             editor.isWordwrap = wordWrap
             editor.editable = editable
+            applyEditorLanguage(editor, binding, fileType, tabWidth, indentWithTabs)
+            editor.applyEditorInputSettings(
+                autoIndent = autoIndent,
+                autoClosePairs = autoClosePairs,
+                tabWidth = tabWidth,
+                indentWithTabs = indentWithTabs,
+                optimizePasteIndentation = optimizePasteIndentation,
+            )
             val commandTargetsDocument = command?.targetDocumentId?.let { it == documentId } ?: true
             if (command != null && commandTargetsDocument && binding.commandId != command.id) {
                 binding.commandId = command.id
@@ -189,6 +211,49 @@ fun CodeEditorView(
             editor.release()
         },
     )
+}
+
+/**
+ * 输入辅助直接作用于当前 Sora 实例，设置切换后无需关闭标签或重建整份正文。
+ *
+ * @author long
+ */
+private fun CodeEditor.applyEditorInputSettings(
+    autoIndent: Boolean,
+    autoClosePairs: Boolean,
+    tabWidth: Int,
+    indentWithTabs: Boolean,
+    optimizePasteIndentation: Boolean,
+) {
+    val normalizedTabWidth = tabWidth.coerceIn(2, 8)
+    props.autoIndent = autoIndent
+    props.symbolPairAutoCompletion = autoClosePairs
+    // Sora 内置 formatPastedText 会调用语言 Formatter；TextMate 当前没有格式化器，后续使用应用自己的缩进优化。 @author long
+    props.formatPastedText = false
+    setTabWidth(normalizedTabWidth)
+    (this as? ReaderCodeEditor)?.optimizePasteIndentation = optimizePasteIndentation
+}
+
+private fun applyEditorLanguage(
+    editor: CodeEditor,
+    binding: EditorDocumentBinding,
+    fileType: FileType,
+    tabWidth: Int,
+    indentWithTabs: Boolean,
+    force: Boolean = false,
+) {
+    val normalizedTabWidth = tabWidth.coerceIn(2, 8)
+    if (!force &&
+        binding.languageFileType == fileType &&
+        binding.languageTabWidth == normalizedTabWidth &&
+        binding.languageIndentWithTabs == indentWithTabs
+    ) {
+        return
+    }
+    editor.setEditorLanguage(SyntaxRegistry.createLanguage(fileType, normalizedTabWidth, indentWithTabs))
+    binding.languageFileType = fileType
+    binding.languageTabWidth = normalizedTabWidth
+    binding.languageIndentWithTabs = indentWithTabs
 }
 
 private fun reportCursorLine(
@@ -262,6 +327,30 @@ private fun handleEditorCommand(
             editor.post {
                 if (!isCurrentEditorCommand(binding, command, documentId)) return@post
                 editor.redo()
+                editor.post { reportHistoryState(editor, binding, onHistoryChanged) }
+            }
+        }
+        ReaderCommandType.SELECT_LINE,
+        ReaderCommandType.DELETE_LINE,
+        ReaderCommandType.COPY,
+        ReaderCommandType.CUT,
+        ReaderCommandType.PASTE,
+        ReaderCommandType.INDENT,
+        ReaderCommandType.UNINDENT -> {
+            editor.post {
+                if (editor.isReleased || !isCurrentEditorCommand(binding, command, documentId)) return@post
+                when (command.type) {
+                    ReaderCommandType.SELECT_LINE -> selectCurrentEditorLine(editor)
+                    ReaderCommandType.DELETE_LINE -> if (editor.editable) deleteCurrentEditorLine(editor)
+                    ReaderCommandType.COPY -> editor.copyText()
+                    ReaderCommandType.CUT -> if (editor.editable) editor.cutText()
+                    ReaderCommandType.PASTE -> if (editor.editable) {
+                        // 面板关闭时不依赖 IME 重新连接，确保用户点击粘贴后正文一定收到命令。 @author long
+                        (editor as? ReaderCodeEditor)?.pasteClipboardText() ?: editor.pasteText()
+                    }
+                    ReaderCommandType.INDENT -> if (editor.editable) editor.indentLines(false)
+                    ReaderCommandType.UNINDENT -> if (editor.editable) editor.unindentSelection()
+                }
                 editor.post { reportHistoryState(editor, binding, onHistoryChanged) }
             }
         }
@@ -427,6 +516,33 @@ private fun handleEditorCommand(
             binding.searchOptions = null
         }
         ReaderCommandType.MARKDOWN_HEADING -> Unit
+    }
+}
+
+private fun selectCurrentEditorLine(editor: CodeEditor) {
+    val line = editor.cursor.left().line.coerceIn(0, (editor.lineCount - 1).coerceAtLeast(0))
+    editor.setSelectionRegion(line, 0, line, editor.text.getColumnCount(line), true)
+}
+
+/** 删除当前完整行但不改写剪贴板；末行需要连同前一个换行符删除，避免留下空壳行。 @author long */
+private fun deleteCurrentEditorLine(editor: CodeEditor) {
+    if (editor.lineCount <= 0) return
+    val line = editor.cursor.left().line.coerceIn(0, editor.lineCount - 1)
+    val lastLine = editor.lineCount - 1
+    editor.text.beginBatchEdit()
+    try {
+        when {
+            editor.lineCount == 1 -> editor.text.delete(0, 0, 0, editor.text.getColumnCount(0))
+            line < lastLine -> editor.text.delete(line, 0, line + 1, 0)
+            else -> editor.text.delete(
+                line - 1,
+                editor.text.getColumnCount(line - 1),
+                line,
+                editor.text.getColumnCount(line),
+            )
+        }
+    } finally {
+        editor.text.endBatchEdit()
     }
 }
 
