@@ -99,12 +99,12 @@ Markdown 源码与预览一键切换，预览内核完全使用 APK 内置资源
 
 从 [Releases](https://github.com/lonnnnnng/android-code-reader/releases) 下载正式 APK。当前正式版本：
 
-**[灵阅 v0.1.17](https://github.com/lonnnnnng/android-code-reader/releases/tag/v0.1.17)**
+**[灵阅 v0.1.18](https://github.com/lonnnnnng/android-code-reader/releases/tag/v0.1.18)**
 
 安装包：
 
-- [AndroidCodeReader-v0.1.17.apk](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.17/AndroidCodeReader-v0.1.17.apk)
-- [SHA256SUMS](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.17/SHA256SUMS)
+- [AndroidCodeReader-v0.1.18.apk](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.18/AndroidCodeReader-v0.1.18.apk)
+- [SHA256SUMS](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.18/SHA256SUMS)
 
 ### 三步开始阅读
 
