@@ -11,6 +11,7 @@ import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertWidthIsEqualTo
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -24,6 +25,7 @@ import com.lonnnnnng.codereader.model.ProjectTreeEntry
 import com.lonnnnnng.codereader.model.ReaderTheme
 import com.lonnnnnng.codereader.model.SourceEntry
 import com.lonnnnnng.codereader.domain.ProjectSearchOptions
+import com.lonnnnnng.codereader.domain.TextSearchOptions
 import com.lonnnnnng.codereader.update.AppRelease
 import com.lonnnnnng.codereader.update.ReleaseApkAsset
 import org.junit.Assert.assertTrue
@@ -264,5 +266,94 @@ class DialogLayoutInstrumentedTest {
         composeRule.onNodeWithTag("reader-action-touch-查看源码")
             .assertHeightIsEqualTo(ReaderDimens.iconTouchTarget)
             .assertWidthIsEqualTo(ReaderDimens.iconTouchTarget)
+    }
+
+    @Test
+    fun editorActionBarReflectsUndoAndRedoAvailability() {
+        var undoRequested = false
+        var redoRequested = false
+        composeRule.setContent {
+            MaterialTheme(
+                colorScheme = appColorScheme(ReaderTheme.HIGH_CONTRAST_LIGHT, AppColorPalette.EMERALD),
+                typography = ReaderTypography,
+                shapes = ReaderShapes,
+            ) {
+                ReaderActionBar(
+                    hasProject = false,
+                    markdown = false,
+                    markdownPreview = false,
+                    markdownOutlineAvailable = false,
+                    markdownOutlineExpanded = false,
+                    editable = true,
+                    dirty = true,
+                    canUndo = true,
+                    canRedo = false,
+                    onOpenFileSwitcher = {},
+                    onTogglePreview = {},
+                    onToggleMarkdownOutline = {},
+                    onToggleEditable = {},
+                    onUndo = { undoRequested = true },
+                    onRedo = { redoRequested = true },
+                    onSave = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("撤销").assertIsEnabled().performClick()
+        composeRule.onNodeWithContentDescription("重做").assertIsNotEnabled()
+        composeRule.runOnIdle {
+            assertTrue(undoRequested)
+            assertTrue(!redoRequested)
+        }
+    }
+
+    @Test
+    fun fileSearchBarProvidesProductReplaceControls() {
+        var currentReplacement: String? = null
+        var allReplacement: String? = null
+        composeRule.setContent {
+            MaterialTheme(
+                colorScheme = appColorScheme(ReaderTheme.HIGH_CONTRAST_LIGHT, AppColorPalette.EMERALD),
+                typography = ReaderTypography,
+                shapes = ReaderShapes,
+            ) {
+                FileSearchBar(
+                    text = "user(\\d)",
+                    onTextChanged = {},
+                    options = TextSearchOptions(regularExpression = true),
+                    matchCount = 2,
+                    currentMatchIndex = 0,
+                    storedMatchCount = 2,
+                    searching = false,
+                    error = null,
+                    truncated = false,
+                    scannedLines = 2,
+                    optionsEnabled = true,
+                    replaceSupported = true,
+                    replaceAvailable = true,
+                    onPrevious = {},
+                    onNext = {},
+                    onCancel = {},
+                    onOptionsApplied = {},
+                    onReplaceCurrent = { currentReplacement = it },
+                    onReplaceAll = { allReplacement = it },
+                    onClose = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("展开替换").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("file-replace-input").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.mainClock.advanceTimeBy(500)
+        composeRule.onNodeWithText("替换为（正则支持 $1）").assertIsDisplayed()
+        composeRule.onNodeWithTag("file-replace-input").performTextInput("account$1")
+        composeRule.onNodeWithTag("replace-current-match").assertIsEnabled().performClick()
+        composeRule.onNodeWithTag("replace-all-matches").assertIsEnabled().performClick()
+        composeRule.runOnIdle {
+            assertTrue(currentReplacement == "account$1")
+            assertTrue(allReplacement == "account$1")
+        }
     }
 }

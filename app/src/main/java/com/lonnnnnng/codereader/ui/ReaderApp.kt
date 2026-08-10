@@ -57,6 +57,8 @@ import androidx.compose.material.icons.automirrored.outlined.ManageSearch
 import androidx.compose.material.icons.automirrored.outlined.NavigateBefore
 import androidx.compose.material.icons.automirrored.outlined.NavigateNext
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
+import androidx.compose.material.icons.automirrored.outlined.Redo
+import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.BookmarkRemove
@@ -73,6 +75,7 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.FindInPage
+import androidx.compose.material.icons.outlined.FindReplace
 import androidx.compose.material.icons.outlined.FilterAlt
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.FolderOpen
@@ -357,6 +360,10 @@ fun ReaderApp(viewModel: ReaderViewModel) {
                             onEditable = viewModel::setEditable,
                             onTextChanged = viewModel::updateDraft,
                             onSave = viewModel::save,
+                            onUndo = viewModel::undo,
+                            onRedo = viewModel::redo,
+                            onReplaceCurrent = viewModel::replaceCurrent,
+                            onReplaceAll = viewModel::replaceAll,
                             onTogglePreview = viewModel::toggleMarkdownPreview,
                             onSwitchTab = viewModel::switchTab,
                             onCloseTab = viewModel::closeTab,
@@ -368,6 +375,8 @@ fun ReaderApp(viewModel: ReaderViewModel) {
                             onGotoHeading = viewModel::gotoMarkdownHeading,
                             onReadingPositionChanged = viewModel::updateReadingPosition,
                             onCursorPositionChanged = viewModel::updateCursorPosition,
+                            onEditorHistoryChanged = viewModel::updateEditorHistory,
+                            onEditorReplacementCompleted = viewModel::handleEditorReplacement,
                             onToggleFileBookmark = viewModel::toggleFileBookmark,
                             onToggleLineBookmark = viewModel::toggleLineBookmark,
                             onOpenReadingBookmark = viewModel::openReadingBookmark,
@@ -2362,6 +2371,10 @@ private fun ReaderScreen(
     onEditable: (Boolean) -> Unit,
     onTextChanged: (String) -> Unit,
     onSave: () -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    onReplaceCurrent: (String) -> Unit,
+    onReplaceAll: (String) -> Unit,
     onTogglePreview: () -> Unit,
     onSwitchTab: (String) -> Unit,
     onCloseTab: (String) -> Unit,
@@ -2373,6 +2386,8 @@ private fun ReaderScreen(
     onGotoHeading: (Int) -> Unit,
     onReadingPositionChanged: (String, Int) -> Unit,
     onCursorPositionChanged: (String, Int) -> Unit,
+    onEditorHistoryChanged: (String, EditorHistoryState) -> Unit,
+    onEditorReplacementCompleted: (EditorReplacementResult) -> Unit,
     onToggleFileBookmark: () -> Unit,
     onToggleLineBookmark: (Int) -> Unit,
     onOpenReadingBookmark: (ReadingDocumentState) -> Unit,
@@ -2616,12 +2631,19 @@ private fun ReaderScreen(
                     truncated = fileSearchText == state.fileSearchQuery && state.fileSearchCountTruncated,
                     scannedLines = if (fileSearchText == state.fileSearchQuery) state.fileSearchScannedLines else 0,
                     optionsEnabled = !state.markdownPreview,
+                    replaceSupported = state.editable && !state.markdownPreview,
+                    replaceAvailable = fileSearchText == state.fileSearchQuery &&
+                        !state.fileSearchInProgress &&
+                        state.fileSearchError == null &&
+                        state.fileSearchMatches.isNotEmpty(),
                     onPrevious = { onSearchInFile(fileSearchText, false, state.fileSearchOptions) },
                     onNext = { onSearchInFile(fileSearchText, true, state.fileSearchOptions) },
                     onCancel = onCancelFileSearch,
                     onOptionsApplied = { options ->
                         if (fileSearchText.isNotEmpty()) onSearchInFile(fileSearchText, true, options)
                     },
+                    onReplaceCurrent = onReplaceCurrent,
+                    onReplaceAll = onReplaceAll,
                     onClose = { searchVisible = false; onClearFileSearch() },
                 )
             } else {
@@ -2633,10 +2655,14 @@ private fun ReaderScreen(
                     markdownOutlineExpanded = outlineExpanded,
                     editable = state.editable,
                     dirty = state.dirty,
+                    canUndo = state.canUndo,
+                    canRedo = state.canRedo,
                     onOpenFileSwitcher = { showFileSwitcher = true },
                     onTogglePreview = { outlineExpanded = false; onTogglePreview() },
                     onToggleMarkdownOutline = { outlineExpanded = !outlineExpanded },
                     onToggleEditable = { onEditable(!state.editable) },
+                    onUndo = onUndo,
+                    onRedo = onRedo,
                     onSave = onSave,
                 )
             }
@@ -2687,6 +2713,8 @@ private fun ReaderScreen(
                 wordWrap = state.settings.wordWrap,
                 command = state.readerCommand,
                 onTextChanged = onTextChanged,
+                onHistoryChanged = onEditorHistoryChanged,
+                onReplacementCompleted = onEditorReplacementCompleted,
                 onReadingPositionChanged = onReadingPositionChanged,
                 onCursorPositionChanged = onCursorPositionChanged,
                 modifier = if (document.fileType.markdown) {
@@ -2983,7 +3011,7 @@ internal fun ReaderTabs(state: ReaderUiState, onSwitch: (String) -> Unit, onClos
 }
 
 @Composable
-private fun FileSearchBar(
+internal fun FileSearchBar(
     text: String,
     onTextChanged: (String) -> Unit,
     options: TextSearchOptions,
@@ -2995,15 +3023,24 @@ private fun FileSearchBar(
     truncated: Boolean,
     scannedLines: Int,
     optionsEnabled: Boolean,
+    replaceSupported: Boolean = false,
+    replaceAvailable: Boolean = false,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onCancel: () -> Unit,
     onOptionsApplied: (TextSearchOptions) -> Unit,
+    onReplaceCurrent: (String) -> Unit = {},
+    onReplaceAll: (String) -> Unit = {},
     onClose: () -> Unit,
 ) {
     val focusRequester = remember { FocusRequester() }
     var showOptions by remember { mutableStateOf(false) }
+    var replaceVisible by remember { mutableStateOf(false) }
+    var replacementText by remember { mutableStateOf("") }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(replaceSupported) {
+        if (!replaceSupported) replaceVisible = false
+    }
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
@@ -3078,6 +3115,18 @@ private fun FileSearchBar(
                         tint = if (options.activeCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                if (replaceSupported) {
+                    IconButton(
+                        onClick = { replaceVisible = !replaceVisible },
+                        enabled = !searching,
+                    ) {
+                        Icon(
+                            Icons.Outlined.FindReplace,
+                            contentDescription = if (replaceVisible) "收起替换" else "展开替换",
+                            tint = if (replaceVisible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
                 IconButton(onClick = onPrevious, enabled = text.isNotBlank() && !searching) {
                     Icon(Icons.AutoMirrored.Outlined.NavigateBefore, contentDescription = "上一个")
                 }
@@ -3086,6 +3135,57 @@ private fun FileSearchBar(
                 }
                 IconButton(onClick = onClose) {
                     Icon(Icons.Outlined.Close, contentDescription = "关闭搜索")
+                }
+            }
+            AnimatedVisibility(visible = replaceSupported && replaceVisible) {
+                Column(modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 7.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        BasicTextField(
+                            value = replacementText,
+                            onValueChange = { replacementText = it },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            decorationBox = { innerTextField ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .height(38.dp)
+                                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.small)
+                                        .background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.small)
+                                        .padding(horizontal = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    if (replacementText.isEmpty()) {
+                                        Text(
+                                            if (options.regularExpression) "替换为（正则支持 $1）" else "替换为（留空可删除）",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            },
+                            modifier = Modifier.weight(1f).height(38.dp).testTag("file-replace-input"),
+                        )
+                        TextButton(
+                            onClick = { onReplaceCurrent(replacementText) },
+                            enabled = replaceAvailable,
+                            modifier = Modifier.testTag("replace-current-match"),
+                        ) {
+                            Text("替换")
+                        }
+                        TextButton(
+                            onClick = { onReplaceAll(replacementText) },
+                            enabled = replaceAvailable,
+                            modifier = Modifier.testTag("replace-all-matches"),
+                        ) {
+                            Text("全部")
+                        }
+                    }
                 }
             }
             if (searching || error != null || truncated) {
@@ -3198,10 +3298,14 @@ internal fun ReaderActionBar(
     markdownOutlineExpanded: Boolean,
     editable: Boolean,
     dirty: Boolean,
+    canUndo: Boolean = false,
+    canRedo: Boolean = false,
     onOpenFileSwitcher: () -> Unit,
     onTogglePreview: () -> Unit,
     onToggleMarkdownOutline: () -> Unit,
     onToggleEditable: () -> Unit,
+    onUndo: () -> Unit = {},
+    onRedo: () -> Unit = {},
     onSave: () -> Unit,
 ) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
@@ -3246,6 +3350,20 @@ internal fun ReaderActionBar(
                 stateDescription = if (editable) "编辑已开启" else "当前为只读模式",
                 onClick = onToggleEditable,
             )
+            if (editable && !markdownPreview) {
+                ReaderActionButton(
+                    icon = Icons.AutoMirrored.Outlined.Undo,
+                    contentDescription = "撤销",
+                    enabled = canUndo,
+                    onClick = onUndo,
+                )
+                ReaderActionButton(
+                    icon = Icons.AutoMirrored.Outlined.Redo,
+                    contentDescription = "重做",
+                    enabled = canRedo,
+                    onClick = onRedo,
+                )
+            }
             if (dirty) {
                 ReaderActionButton(
                     icon = Icons.Outlined.Save,
@@ -3266,6 +3384,7 @@ private fun ReaderActionButton(
     contentDescription: String,
     selected: Boolean = false,
     emphasized: Boolean = false,
+    enabled: Boolean = true,
     stateDescription: String? = null,
     onClick: () -> Unit,
 ) {
@@ -3281,6 +3400,7 @@ private fun ReaderActionButton(
     }
     IconButton(
         onClick = onClick,
+        enabled = enabled,
         modifier = Modifier
             .size(ReaderDimens.iconTouchTarget)
             .testTag("reader-action-touch-$contentDescription")
@@ -3290,6 +3410,7 @@ private fun ReaderActionButton(
         colors = IconButtonDefaults.iconButtonColors(
             containerColor = ComposeColor.Transparent,
             contentColor = contentColor,
+            disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.32f),
         ),
     ) {
         Box(

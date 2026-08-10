@@ -103,4 +103,72 @@ class TextSearchTest {
         assertEquals(3, result.totalMatches)
         assertTrue(result.truncated)
     }
+
+    @Test
+    fun `正则批量替换支持捕获组并保留原始换行符`() {
+        val source = "val user1 = \"user1\"\r\nval user2 = \"user2\""
+
+        val result = TextReplacementEngine.replaceAll(
+            text = source,
+            query = "user(\\d)",
+            replacement = "account$1",
+            options = TextSearchOptions(regularExpression = true),
+        )
+
+        assertEquals(4, result.replacementCount)
+        assertEquals("val account1 = \"account1\"\r\nval account2 = \"account2\"", result.text)
+    }
+
+    @Test
+    fun `当前正则命中根据精确列计算捕获组替换文本`() {
+        val replacement = TextReplacementEngine.replacementForMatch(
+            line = "val user42 = user42",
+            start = 4,
+            endExclusive = 10,
+            query = "user(\\d+)",
+            replacement = "account$1",
+            options = TextSearchOptions(regularExpression = true),
+        )
+
+        assertEquals("account42", replacement)
+    }
+
+    @Test
+    fun `当前正则命名捕获组和普通美元符号分别按各自语义处理`() {
+        val regexReplacement = TextReplacementEngine.replacementForMatch(
+            line = "user-42",
+            start = 0,
+            endExclusive = 7,
+            query = "user-(?<id>\\d+)",
+            replacement = "account-\${id}",
+            options = TextSearchOptions(regularExpression = true),
+        )
+        val plainReplacement = TextReplacementEngine.replacementForMatch(
+            line = "user",
+            start = 0,
+            endExclusive = 4,
+            query = "user",
+            replacement = "$1",
+            options = TextSearchOptions(),
+        )
+
+        assertEquals("account-42", regexReplacement)
+        assertEquals("$1", plainReplacement)
+    }
+
+    @Test
+    fun `当前替换拒绝已经失效的精确行列`() {
+        val error = runCatching {
+            TextReplacementEngine.replacementForMatch(
+                line = "val other = 1",
+                start = 4,
+                endExclusive = 9,
+                query = "user",
+                replacement = "account",
+                options = TextSearchOptions(),
+            )
+        }.exceptionOrNull()
+
+        assertEquals("当前匹配已失效，请重新搜索", error?.message)
+    }
 }

@@ -7,6 +7,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import com.lonnnnnng.codereader.model.FileType
 import com.lonnnnnng.codereader.domain.TextSearchOptions
+import com.lonnnnnng.codereader.domain.TextReplacementEngine
 import com.lonnnnnng.codereader.syntax.SyntaxRegistry
 import io.github.rosemoe.sora.event.ContentChangeEvent
 import io.github.rosemoe.sora.event.ScrollEvent
@@ -15,6 +16,22 @@ import io.github.rosemoe.sora.lang.EmptyLanguage
 import io.github.rosemoe.sora.widget.CodeEditor
 import io.github.rosemoe.sora.widget.EditorSearcher
 import io.github.rosemoe.sora.widget.schemes.EditorColorScheme
+
+/** Compose 只消费撤销/重做能力，不持有 Sora 的可变文本对象。 @author long */
+data class EditorHistoryState(
+    val canUndo: Boolean = false,
+    val canRedo: Boolean = false,
+)
+
+/** 替换结果回传稳定业务字段，Compose 不需要读取 Sora 搜索器内部状态。 @author long */
+data class EditorReplacementResult(
+    val documentId: String,
+    val query: String,
+    val searchOptions: TextSearchOptions,
+    val replacementCount: Int,
+    val replaceAll: Boolean,
+    val errorMessage: String? = null,
+)
 
 private class EditorDocumentBinding {
     var documentId: String? = null
@@ -27,6 +44,7 @@ private class EditorDocumentBinding {
     val scrollOffsets = mutableMapOf<String, Int>()
     val reportedLines = mutableMapOf<String, Int>()
     val reportedCursorLines = mutableMapOf<String, Int>()
+    val historyStates = mutableMapOf<String, EditorHistoryState>()
 }
 
 /**
@@ -45,12 +63,16 @@ fun CodeEditorView(
     wordWrap: Boolean,
     command: ReaderCommand?,
     onTextChanged: (String) -> Unit,
+    onHistoryChanged: (String, EditorHistoryState) -> Unit = { _, _ -> },
+    onReplacementCompleted: (EditorReplacementResult) -> Unit = {},
     onReadingPositionChanged: (String, Int) -> Unit,
     onCursorPositionChanged: (String, Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val binding = remember { EditorDocumentBinding() }
     val latestOnTextChanged = androidx.compose.runtime.rememberUpdatedState(onTextChanged)
+    val latestOnHistoryChanged = androidx.compose.runtime.rememberUpdatedState(onHistoryChanged)
+    val latestOnReplacementCompleted = androidx.compose.runtime.rememberUpdatedState(onReplacementCompleted)
     val latestOnReadingPositionChanged = androidx.compose.runtime.rememberUpdatedState(onReadingPositionChanged)
     val latestOnCursorPositionChanged = androidx.compose.runtime.rememberUpdatedState(onCursorPositionChanged)
 
@@ -70,6 +92,13 @@ fun CodeEditorView(
                     ) {
                         binding.renderedText = this.text.toString()
                         latestOnTextChanged.value(binding.renderedText)
+                        post {
+                            reportHistoryState(
+                                editor = this,
+                                binding = binding,
+                                onHistoryChanged = latestOnHistoryChanged.value,
+                            )
+                        }
                     }
                 }
                 subscribeEvent(ScrollEvent::class.java) { _, _ ->
@@ -116,6 +145,9 @@ fun CodeEditorView(
                 binding.searchOptions = null
                 binding.suppressPositionCallback = false
                 restoreScrollOffset(editor, binding.scrollOffsets[documentId])
+                editor.post {
+                    reportHistoryState(editor, binding, latestOnHistoryChanged.value)
+                }
             } else if (binding.renderedText != text && editor.text.toString() != text) {
                 // 大文件追加和标签页恢复属于外部状态变化，不能反向标记为用户编辑。
                 val currentScrollY = editor.scrollY
@@ -125,6 +157,9 @@ fun CodeEditorView(
                 binding.searchQuery = null
                 binding.searchOptions = null
                 restoreScrollOffset(editor, currentScrollY)
+                editor.post {
+                    reportHistoryState(editor, binding, latestOnHistoryChanged.value)
+                }
             }
             editor.setTextSize(fontSizeSp)
             editor.applyReaderAppearance(backgroundColorArgb)
@@ -133,7 +168,15 @@ fun CodeEditorView(
             val commandTargetsDocument = command?.targetDocumentId?.let { it == documentId } ?: true
             if (command != null && commandTargetsDocument && binding.commandId != command.id) {
                 binding.commandId = command.id
-                handleEditorCommand(editor, binding, command, documentId)
+                handleEditorCommand(
+                    editor = editor,
+                    binding = binding,
+                    command = command,
+                    documentId = documentId,
+                    onTextChanged = latestOnTextChanged.value,
+                    onHistoryChanged = latestOnHistoryChanged.value,
+                    onReplacementCompleted = latestOnReplacementCompleted.value,
+                )
             }
         },
         onRelease = { editor ->
@@ -202,8 +245,147 @@ private fun handleEditorCommand(
     binding: EditorDocumentBinding,
     command: ReaderCommand,
     documentId: String,
+    onTextChanged: (String) -> Unit,
+    onHistoryChanged: (String, EditorHistoryState) -> Unit,
+    onReplacementCompleted: (EditorReplacementResult) -> Unit,
 ) {
     when (command.type) {
+        ReaderCommandType.UNDO -> {
+            editor.post {
+                // Compose 正在提交 AndroidView.update 时不能同步改正文，否则 Sora 的行布局可能处于重建中。 @author long
+                if (!isCurrentEditorCommand(binding, command, documentId)) return@post
+                editor.undo()
+                editor.post { reportHistoryState(editor, binding, onHistoryChanged) }
+            }
+        }
+        ReaderCommandType.REDO -> {
+            editor.post {
+                if (!isCurrentEditorCommand(binding, command, documentId)) return@post
+                editor.redo()
+                editor.post { reportHistoryState(editor, binding, onHistoryChanged) }
+            }
+        }
+        ReaderCommandType.REPLACE_CURRENT -> {
+            editor.post {
+                if (editor.isReleased || !isCurrentEditorCommand(binding, command, documentId)) return@post
+                val result = runCatching {
+                    val line = command.line - 1
+                    if (line !in 0 until editor.lineCount) {
+                        throw IllegalStateException("当前匹配位置无效，请重新搜索")
+                    }
+                    val replacementText = TextReplacementEngine.replacementForMatch(
+                        line = editor.text.getLineString(line),
+                        start = command.column,
+                        endExclusive = command.endColumnExclusive,
+                        query = command.query,
+                        replacement = command.replacement,
+                        options = command.searchOptions,
+                    )
+                    // 精确替换只向 Compose 回传一次最终正文，避免 delete/insert 中间态触发两轮草稿搜索。 @author long
+                    binding.suppressTextCallback = true
+                    try {
+                        editor.text.replace(
+                            line,
+                            command.column,
+                            line,
+                            command.endColumnExclusive,
+                            replacementText,
+                        )
+                    } finally {
+                        binding.suppressTextCallback = false
+                    }
+                    binding.renderedText = editor.text.toString()
+                    onTextChanged(binding.renderedText)
+                    editor.searcher.stopSearch()
+                    binding.searchQuery = null
+                    binding.searchOptions = null
+                    1
+                }
+                reportReplacementResult(
+                    editor = editor,
+                    binding = binding,
+                    command = command,
+                    documentId = documentId,
+                    replaceAll = false,
+                    replacementCount = result.getOrDefault(0),
+                    error = result.exceptionOrNull(),
+                    onHistoryChanged = onHistoryChanged,
+                    onReplacementCompleted = onReplacementCompleted,
+                )
+            }
+        }
+        ReaderCommandType.REPLACE_ALL -> {
+            val sourceText = editor.text.toString()
+            val sourceVersion = editor.text.documentVersion
+            Thread({
+                val computed = runCatching {
+                    TextReplacementEngine.replaceAll(
+                        text = sourceText,
+                        query = command.query,
+                        replacement = command.replacement,
+                        options = command.searchOptions,
+                    )
+                }
+                editor.post {
+                    if (editor.isReleased || !isCurrentEditorCommand(binding, command, documentId)) return@post
+                    val result = computed.getOrNull()
+                    if (result == null) {
+                        reportReplacementResult(
+                            editor = editor,
+                            binding = binding,
+                            command = command,
+                            documentId = documentId,
+                            replaceAll = true,
+                            replacementCount = 0,
+                            error = computed.exceptionOrNull(),
+                            onHistoryChanged = onHistoryChanged,
+                            onReplacementCompleted = onReplacementCompleted,
+                        )
+                        return@post
+                    }
+                    if (editor.text.documentVersion != sourceVersion) {
+                        reportReplacementResult(
+                            editor = editor,
+                            binding = binding,
+                            command = command,
+                            documentId = documentId,
+                            replaceAll = true,
+                            replacementCount = 0,
+                            error = IllegalStateException("正文已发生变化，请重新执行全部替换"),
+                            onHistoryChanged = onHistoryChanged,
+                            onReplacementCompleted = onReplacementCompleted,
+                        )
+                        return@post
+                    }
+                    val applied = runCatching {
+                        if (result.replacementCount > 0) {
+                            // 全文替换在一个批次内提交，撤销时一次即可回到替换前正文。 @author long
+                            binding.suppressTextCallback = true
+                            editor.text.beginBatchEdit()
+                            try {
+                                editor.text.replace(0, editor.text.length, result.text)
+                            } finally {
+                                editor.text.endBatchEdit()
+                                binding.suppressTextCallback = false
+                            }
+                            binding.renderedText = result.text
+                            onTextChanged(result.text)
+                        }
+                    }
+                    reportReplacementResult(
+                        editor = editor,
+                        binding = binding,
+                        command = command,
+                        documentId = documentId,
+                        replaceAll = true,
+                        replacementCount = if (applied.isSuccess) result.replacementCount else 0,
+                        error = applied.exceptionOrNull(),
+                        onHistoryChanged = onHistoryChanged,
+                        onReplacementCompleted = onReplacementCompleted,
+                    )
+                }
+            }, "reader-replace-all").start()
+        }
         ReaderCommandType.GOTO_LINE -> {
             // 新文件 setText() 后 Sora 需要到下一帧才稳定 lineCount，否则全局搜索的首次跳转会被夹到第 1 行。
             editor.postDelayed({
@@ -220,8 +402,9 @@ private fun handleEditorCommand(
             editor.postDelayed({
                 if (!isCurrentEditorCommand(binding, command, documentId)) return@postDelayed
                 val line = (command.line - 1).coerceIn(0, (editor.lineCount - 1).coerceAtLeast(0))
-                val column = command.column.coerceIn(0, editor.text.getColumnCount(line))
-                editor.setSelection(line, column, true)
+                val start = command.column.coerceIn(0, editor.text.getColumnCount(line))
+                val end = command.endColumnExclusive.coerceIn(start, editor.text.getColumnCount(line))
+                editor.setSelectionRegion(line, start, line, end, true)
             }, 180)
         }
         ReaderCommandType.SEARCH_FORWARD,
@@ -245,6 +428,44 @@ private fun handleEditorCommand(
         }
         ReaderCommandType.MARKDOWN_HEADING -> Unit
     }
+}
+
+private fun reportReplacementResult(
+    editor: CodeEditor,
+    binding: EditorDocumentBinding,
+    command: ReaderCommand,
+    documentId: String,
+    replaceAll: Boolean,
+    replacementCount: Int,
+    error: Throwable? = null,
+    onHistoryChanged: (String, EditorHistoryState) -> Unit,
+    onReplacementCompleted: (EditorReplacementResult) -> Unit,
+) {
+    if (!isCurrentEditorCommand(binding, command, documentId)) return
+    reportHistoryState(editor, binding, onHistoryChanged)
+    onReplacementCompleted(
+        EditorReplacementResult(
+            documentId = documentId,
+            query = command.query,
+            searchOptions = command.searchOptions,
+            replacementCount = replacementCount,
+            replaceAll = replaceAll,
+            errorMessage = error?.message ?: error?.javaClass?.simpleName,
+        ),
+    )
+}
+
+/** 撤销栈变化比正文事件晚一个主线程队列，延后读取才能得到 Sora 的最终能力状态。 @author long */
+private fun reportHistoryState(
+    editor: CodeEditor,
+    binding: EditorDocumentBinding,
+    onHistoryChanged: (String, EditorHistoryState) -> Unit,
+) {
+    val documentId = binding.documentId ?: return
+    val state = EditorHistoryState(canUndo = editor.canUndo(), canRedo = editor.canRedo())
+    if (binding.historyStates[documentId] == state) return
+    binding.historyStates[documentId] = state
+    onHistoryChanged(documentId, state)
 }
 
 private fun ensureEditorSearch(

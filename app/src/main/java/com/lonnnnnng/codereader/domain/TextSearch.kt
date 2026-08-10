@@ -47,6 +47,147 @@ data class TextSearchProgress(
     val matchesFound: Int,
 )
 
+/** 批量替换同时返回新正文和真实替换次数，调用方可以据此反馈而无需再次扫描。 @author long */
+data class TextReplacementResult(
+    val text: String,
+    val replacementCount: Int,
+)
+
+/**
+ * 替换规则与文件内搜索保持逐行一致，避免 `^`、`$` 和整词选项在搜索与替换时产生不同结果。
+ * 原始 CRLF/LF/CR 分隔符原样写回，配置文件不会因为一次替换被全量改换行格式。
+ *
+ * @author long
+ */
+object TextReplacementEngine {
+    /**
+     * 当前替换必须再次核对精确命中，避免后台搜索完成后正文已变化却误改相邻代码。
+     * 正则替换沿用 Java 的 `$1` 与 `${name}` 捕获组语法，普通替换则把 `$` 视为普通字符。
+     *
+     * @author long
+     */
+    fun replacementForMatch(
+        line: String,
+        start: Int,
+        endExclusive: Int,
+        query: String,
+        replacement: String,
+        options: TextSearchOptions,
+    ): String {
+        require(start >= 0 && endExclusive >= start && endExclusive <= line.length) {
+            "当前匹配位置无效，请重新搜索"
+        }
+        val searchMatcher = TextSearchMatcher.compile(query, options)
+        if (!options.regularExpression) {
+            val stillMatches = searchMatcher.scan(line).matches.any {
+                it.start == start && it.endExclusive == endExclusive
+            }
+            if (!stillMatches) throw IllegalStateException("当前匹配已失效，请重新搜索")
+            return replacement
+        }
+
+        val flags = if (options.caseSensitive) 0 else Pattern.CASE_INSENSITIVE or Pattern.UNICODE_CASE
+        val regexMatcher = Pattern.compile(query, flags).matcher(line)
+        while (regexMatcher.find()) {
+            if (regexMatcher.start() != start || regexMatcher.end() != endExclusive) continue
+            if (options.wholeWord && !isWholeWord(line, start, endExclusive)) continue
+            return try {
+                val expanded = StringBuffer(line.length)
+                regexMatcher.appendReplacement(expanded, replacement)
+                expanded.substring(start)
+            } catch (error: RuntimeException) {
+                throw IllegalArgumentException("替换表达式无效：${error.message ?: error.javaClass.simpleName}", error)
+            }
+        }
+        throw IllegalStateException("当前匹配已失效，请重新搜索")
+    }
+
+    fun replaceAll(
+        text: String,
+        query: String,
+        replacement: String,
+        options: TextSearchOptions,
+    ): TextReplacementResult {
+        val matcher = TextSearchMatcher.compile(query, options)
+        val output = StringBuilder(text.length)
+        var replacementCount = 0
+        var lineStart = 0
+
+        while (lineStart <= text.length) {
+            var lineEnd = lineStart
+            while (lineEnd < text.length && text[lineEnd] != '\r' && text[lineEnd] != '\n') lineEnd++
+            val line = text.substring(lineStart, lineEnd)
+            val lineResult = if (options.regularExpression) {
+                replaceRegexLine(line, query, replacement, options)
+            } else {
+                replacePlainLine(line, matcher, replacement)
+            }
+            output.append(lineResult.text)
+            replacementCount += lineResult.replacementCount
+            if (lineEnd >= text.length) break
+
+            if (text[lineEnd] == '\r' && lineEnd + 1 < text.length && text[lineEnd + 1] == '\n') {
+                output.append("\r\n")
+                lineStart = lineEnd + 2
+            } else {
+                output.append(text[lineEnd])
+                lineStart = lineEnd + 1
+            }
+        }
+
+        return TextReplacementResult(output.toString(), replacementCount)
+    }
+
+    private fun replacePlainLine(
+        line: String,
+        matcher: TextSearchMatcher,
+        replacement: String,
+    ): TextReplacementResult {
+        val matches = matcher.scan(line).matches
+        if (matches.isEmpty()) return TextReplacementResult(line, 0)
+        val output = StringBuilder(line.length)
+        var cursor = 0
+        matches.forEach { match ->
+            output.append(line, cursor, match.start)
+            output.append(replacement)
+            cursor = match.endExclusive
+        }
+        output.append(line, cursor, line.length)
+        return TextReplacementResult(output.toString(), matches.size)
+    }
+
+    private fun replaceRegexLine(
+        line: String,
+        query: String,
+        replacement: String,
+        options: TextSearchOptions,
+    ): TextReplacementResult {
+        val flags = if (options.caseSensitive) 0 else Pattern.CASE_INSENSITIVE or Pattern.UNICODE_CASE
+        val javaMatcher = Pattern.compile(query, flags).matcher(line)
+        val output = StringBuffer(line.length)
+        var replacementCount = 0
+        while (javaMatcher.find()) {
+            if (options.wholeWord && !isWholeWord(line, javaMatcher.start(), javaMatcher.end())) continue
+            try {
+                javaMatcher.appendReplacement(output, replacement)
+            } catch (error: RuntimeException) {
+                throw IllegalArgumentException("替换表达式无效：${error.message ?: error.javaClass.simpleName}", error)
+            }
+            replacementCount++
+        }
+        javaMatcher.appendTail(output)
+        return TextReplacementResult(output.toString(), replacementCount)
+    }
+
+    private fun isWholeWord(text: CharSequence, start: Int, endExclusive: Int): Boolean {
+        val beforeIsWord = start > 0 && isWordCharacter(text[start - 1])
+        val afterIsWord = endExclusive < text.length && isWordCharacter(text[endExclusive])
+        return !beforeIsWord && !afterIsWord
+    }
+
+    private fun isWordCharacter(character: Char): Boolean = character == '_' || character.isLetterOrDigit()
+}
+
 /** @author long */
 enum class ProjectSearchScope { PROJECT, CURRENT_DIRECTORY }
 

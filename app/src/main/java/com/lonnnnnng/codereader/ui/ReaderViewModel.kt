@@ -84,6 +84,10 @@ enum class SettingsPage { ROOT, READING, APPEARANCE, UPDATE }
 
 /** @author long */
 enum class ReaderCommandType {
+    UNDO,
+    REDO,
+    REPLACE_CURRENT,
+    REPLACE_ALL,
     SEARCH_FORWARD,
     SEARCH_BACKWARD,
     CLEAR_SEARCH,
@@ -101,6 +105,8 @@ data class ReaderCommand(
     val headingIndex: Int = 0,
     val searchOptions: TextSearchOptions = TextSearchOptions(),
     val column: Int = 0,
+    val endColumnExclusive: Int = column,
+    val replacement: String = "",
     val targetDocumentId: String? = null,
 )
 
@@ -154,6 +160,8 @@ data class ReaderTabState(
     val draftText: String = document.text,
     val editable: Boolean = false,
     val dirty: Boolean = false,
+    val canUndo: Boolean = false,
+    val canRedo: Boolean = false,
     val markdownPreview: Boolean = document.fileType.markdown,
     val currentLine: Int = 1,
     val cursorLine: Int = currentLine,
@@ -208,6 +216,8 @@ data class ReaderUiState(
     val draftText: String get() = activeTab?.draftText.orEmpty()
     val editable: Boolean get() = activeTab?.editable == true
     val dirty: Boolean get() = activeTab?.dirty == true
+    val canUndo: Boolean get() = activeTab?.canUndo == true
+    val canRedo: Boolean get() = activeTab?.canRedo == true
     val markdownPreview: Boolean get() = activeTab?.markdownPreview == true
     val currentLine: Int get() = activeTab?.currentLine?.coerceAtLeast(1) ?: 1
     val cursorLine: Int get() = activeTab?.cursorLine?.coerceAtLeast(1) ?: currentLine
@@ -640,6 +650,10 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         _state.update {
             it.copy(
                 screen = AppScreen.READER,
+                // 当前 Sora 实例切换全文后会建立新的撤销栈，不能沿用旧标签的能力提示。 @author long
+                tabs = it.tabs.map { item ->
+                    if (item.document.id == id) item.copy(canUndo = false, canRedo = false) else item
+                },
                 activeTabId = id,
                 readerCommand = commandForTab(tab),
             )
@@ -769,8 +783,115 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             cancelFileSearchTask(clearState = false)
         }
         updateActiveTab { tab ->
-            if (tab.draftText == text) tab else tab.copy(draftText = text, dirty = true).withoutFileSearch()
+            if (tab.draftText == text) tab else tab.copy(
+                draftText = text,
+                dirty = text != tab.document.text,
+            ).withoutFileSearch()
         }
+    }
+
+    fun updateEditorHistory(documentId: String, history: EditorHistoryState) {
+        updateTab(documentId) { tab ->
+            if (tab.canUndo == history.canUndo && tab.canRedo == history.canRedo) tab else tab.copy(
+                canUndo = history.canUndo,
+                canRedo = history.canRedo,
+            )
+        }
+    }
+
+    fun undo() = dispatchEditingCommand(ReaderCommandType.UNDO, _state.value.canUndo)
+
+    fun redo() = dispatchEditingCommand(ReaderCommandType.REDO, _state.value.canRedo)
+
+    fun replaceCurrent(replacement: String) {
+        val tab = editableSearchTab() ?: return
+        val match = tab.searchMatches.getOrNull(tab.searchCurrentIndex)
+        if (match == null) {
+            _state.update { it.copy(message = "请先定位要替换的匹配内容") }
+            return
+        }
+        dispatchCommand(
+            ReaderCommand(
+                id = commandIds.incrementAndGet(),
+                type = ReaderCommandType.REPLACE_CURRENT,
+                query = tab.searchQuery,
+                line = match.line,
+                column = match.column,
+                endColumnExclusive = match.endColumnExclusive,
+                searchOptions = tab.searchOptions,
+                replacement = replacement,
+                targetDocumentId = tab.document.id,
+            ),
+        )
+    }
+
+    fun replaceAll(replacement: String) {
+        val tab = editableSearchTab() ?: return
+        dispatchCommand(
+            ReaderCommand(
+                id = commandIds.incrementAndGet(),
+                type = ReaderCommandType.REPLACE_ALL,
+                query = tab.searchQuery,
+                searchOptions = tab.searchOptions,
+                replacement = replacement,
+                targetDocumentId = tab.document.id,
+            ),
+        )
+    }
+
+    private fun editableSearchTab(): ReaderTabState? {
+        val tab = _state.value.activeTab ?: return null
+        val unavailableMessage = when {
+            !tab.editable -> "请先进入编辑模式"
+            tab.markdownPreview -> "Markdown 预览不支持替换，请切换到源码"
+            tab.searchInProgress -> "文件搜索尚未完成"
+            tab.searchQuery.isEmpty() || tab.searchMatches.isEmpty() -> "当前没有可替换的匹配内容"
+            else -> null
+        }
+        if (unavailableMessage != null) {
+            _state.update { it.copy(message = unavailableMessage) }
+            return null
+        }
+        return tab
+    }
+
+    fun handleEditorReplacement(result: EditorReplacementResult) {
+        if (_state.value.activeTabId != result.documentId) return
+        if (result.errorMessage != null) {
+            _state.update { it.copy(message = "替换失败：${result.errorMessage}") }
+            return
+        }
+        if (result.replacementCount <= 0) {
+            _state.update { it.copy(message = "当前没有可替换的匹配内容") }
+            return
+        }
+        if (result.replaceAll) {
+            updateTab(result.documentId) { it.withoutFileSearch() }
+            dispatchCommand(
+                ReaderCommand(
+                    id = commandIds.incrementAndGet(),
+                    type = ReaderCommandType.CLEAR_SEARCH,
+                    targetDocumentId = result.documentId,
+                ),
+            )
+            _state.update { it.copy(message = "已替换 ${result.replacementCount} 处") }
+        } else {
+            _state.update { it.copy(message = "已替换当前匹配") }
+            // 当前替换会让旧行列失效，重新扫描后直接定位下一处，连续修订无需再次提交查询。 @author long
+            searchInFile(result.query, forward = true, options = result.searchOptions)
+        }
+    }
+
+    private fun dispatchEditingCommand(type: ReaderCommandType, available: Boolean) {
+        val tab = _state.value.activeTab ?: return
+        if (!tab.editable || tab.markdownPreview || !available) return
+        dispatchCommand(
+            ReaderCommand(
+                id = commandIds.incrementAndGet(),
+                type = type,
+                targetDocumentId = tab.document.id,
+            ),
+        )
     }
 
     fun save() {
@@ -1263,6 +1384,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 query = query,
                 line = match.line,
                 column = match.column,
+                endColumnExclusive = match.endColumnExclusive,
                 searchOptions = options,
                 targetDocumentId = documentId,
             ),
@@ -1847,6 +1969,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 query = tab.searchQuery,
                 line = match.line,
                 column = match.column,
+                endColumnExclusive = match.endColumnExclusive,
                 searchOptions = tab.searchOptions,
                 targetDocumentId = tab.document.id,
             )

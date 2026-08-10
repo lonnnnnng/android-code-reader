@@ -411,6 +411,10 @@ private fun handleMarkdownCommand(
             // 源码与预览共用 1-based 行号命令，DOM 会优先定位到覆盖该行的最小语义块。 @author long
             webView.evaluateJavascript("scrollToSourceLine(${command.line.coerceAtLeast(1)})", null)
         }
+        ReaderCommandType.UNDO,
+        ReaderCommandType.REDO,
+        ReaderCommandType.REPLACE_CURRENT,
+        ReaderCommandType.REPLACE_ALL,
         ReaderCommandType.GOTO_SEARCH_MATCH -> Unit
     }
 }
