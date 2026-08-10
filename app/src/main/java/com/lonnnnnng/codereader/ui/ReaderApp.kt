@@ -81,6 +81,7 @@ import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.FindInPage
 import androidx.compose.material.icons.outlined.FindReplace
+import androidx.compose.material.icons.outlined.FileCopy
 import androidx.compose.material.icons.outlined.FilterAlt
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.FolderOpen
@@ -177,6 +178,7 @@ import com.lonnnnnng.codereader.model.AppColorPalette
 import com.lonnnnnng.codereader.model.BinaryFileInfo
 import com.lonnnnnng.codereader.model.EntryLocation
 import com.lonnnnnng.codereader.model.FileType
+import com.lonnnnnng.codereader.model.OpenDocument
 import com.lonnnnnng.codereader.model.ProjectSearchResult
 import com.lonnnnnng.codereader.model.ProjectTreeEntry
 import com.lonnnnnng.codereader.model.ReaderBackground
@@ -200,6 +202,7 @@ fun ReaderApp(viewModel: ReaderViewModel) {
     var showGitDialog by remember { mutableStateOf(false) }
     var showExitConfirmation by rememberSaveable { mutableStateOf(false) }
     var pendingHtmlExportPath by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingDocumentExportId by rememberSaveable { mutableStateOf<String?>(null) }
 
     val createHtmlDocument = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/html"),
@@ -220,6 +223,18 @@ fun ReaderApp(viewModel: ReaderViewModel) {
         }.also {
             // 系统文件创建器回调后立即清理内部中转文件，避免多次导出长期占用缓存空间。 @author long
             source.delete()
+        }
+    }
+
+    val createDocumentCopy = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream"),
+    ) { uri ->
+        val documentId = pendingDocumentExportId
+        pendingDocumentExportId = null
+        when {
+            uri == null -> Unit
+            documentId == null -> viewModel.reportMessage("导出请求已经失效，请重新选择文件")
+            else -> viewModel.exportDocumentCopy(documentId, uri)
         }
     }
 
@@ -404,6 +419,16 @@ fun ReaderApp(viewModel: ReaderViewModel) {
                             onLocateCurrentFile = viewModel::locateCurrentFileInProject,
                             onCopyFullPath = copyFullPath,
                             onReportMessage = viewModel::reportMessage,
+                            onExportDocumentCopy = { documentId, documentName ->
+                                pendingDocumentExportId = documentId
+                                runCatching { createDocumentCopy.launch(documentName) }
+                                    .onFailure { error ->
+                                        pendingDocumentExportId = null
+                                        viewModel.reportMessage(
+                                            "无法打开系统文件创建器：${error.message ?: error.javaClass.simpleName}",
+                                        )
+                                    }
+                            },
                             onExportHtml = { title, html ->
                                 var preparedFile: File? = null
                                 runCatching {
@@ -2589,6 +2614,7 @@ private fun ReaderScreen(
     onLocateCurrentFile: () -> Unit,
     onCopyFullPath: (String) -> Unit,
     onReportMessage: (String) -> Unit,
+    onExportDocumentCopy: (String, String) -> Unit,
     onExportHtml: (String, String) -> Unit,
 ) {
     val document = state.document ?: return
@@ -2737,6 +2763,10 @@ private fun ReaderScreen(
                                 contentPadding = PaddingValues(horizontal = 12.dp),
                                 modifier = Modifier.heightIn(min = ReaderDimens.iconTouchTarget).testTag("copy-full-path"),
                             )
+                            DocumentCopyExportMenuItem(document) {
+                                menuExpanded = false
+                                onExportDocumentCopy(document.id, document.name)
+                            }
                             if (document.fileType.markdown && state.markdownPreview && state.markdownHeadings.isNotEmpty()) {
                                 DropdownMenuItem(
                                     text = { Text(if (outlineExpanded) "收起 Markdown 目录" else "展开 Markdown 目录") },
@@ -3016,6 +3046,24 @@ private fun ReaderScreen(
             }
         }
     }
+}
+
+/** 不可写来源和分段大文件只展示“另存副本”，避免用户误以为可以覆盖当前原文件。 @author long */
+@Composable
+internal fun DocumentCopyExportMenuItem(
+    document: OpenDocument,
+    onExport: () -> Unit,
+) {
+    if (document.canWrite && !document.largeFile) return
+    DropdownMenuItem(
+        text = { Text("导出原文件副本") },
+        leadingIcon = { Icon(Icons.Outlined.FileCopy, contentDescription = null) },
+        onClick = onExport,
+        contentPadding = PaddingValues(horizontal = 12.dp),
+        modifier = Modifier
+            .heightIn(min = ReaderDimens.iconTouchTarget)
+            .testTag("export-document-copy"),
+    )
 }
 
 /** Markdown 导出动作集中在同一菜单片段，避免阅读页继续承担系统分享与打印细节。 @author long */
@@ -4228,7 +4276,11 @@ internal fun ReaderOperationOverlay(operation: ReaderOperationState, onCancel: (
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         ReaderIconBadge(
-                            icon = if (operation.kind == ReaderOperationKind.GIT) Icons.Outlined.Sync else Icons.Outlined.HourglassTop,
+                            icon = when (operation.kind) {
+                                ReaderOperationKind.GIT -> Icons.Outlined.Sync
+                                ReaderOperationKind.EXPORT -> Icons.Outlined.FileCopy
+                                ReaderOperationKind.GENERAL, ReaderOperationKind.INDEX -> Icons.Outlined.HourglassTop
+                            },
                             tone = ReaderBadgeTone.PRIMARY,
                         )
                         Column(modifier = Modifier.weight(1f)) {

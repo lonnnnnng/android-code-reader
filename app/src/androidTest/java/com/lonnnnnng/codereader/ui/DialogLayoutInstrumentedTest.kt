@@ -314,6 +314,66 @@ class DialogLayoutInstrumentedTest {
     }
 
     @Test
+    fun nonWritableDocumentOffersExportCopyAlternative() {
+        var exportRequested = false
+        val document = OpenDocument(
+            name = "readonly-config.yaml",
+            text = "server:\n  port: 8080\n",
+            fileType = FileType.YAML,
+            canWrite = false,
+            location = EntryLocation.Local(File("/tmp/readonly-config.yaml")),
+        )
+        composeRule.setContent {
+            MaterialTheme(
+                colorScheme = appColorScheme(ReaderTheme.HIGH_CONTRAST_LIGHT, AppColorPalette.EMERALD),
+                typography = ReaderTypography,
+                shapes = ReaderShapes,
+            ) {
+                DocumentCopyExportMenuItem(
+                    document = document,
+                    onExport = { exportRequested = true },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("export-document-copy").assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("导出原文件副本").assertIsDisplayed()
+        composeRule.runOnIdle { assertTrue("导出菜单必须回传当前文件", exportRequested) }
+    }
+
+    @Test
+    fun exportCopyAlternativeOnlyAppearsWhenTheSourceNeedsIt() {
+        val document = mutableStateOf(
+            OpenDocument(
+                name = "service.log",
+                text = "service started\n",
+                fileType = FileType.PLAIN_TEXT,
+                canWrite = true,
+                location = EntryLocation.Local(File("/tmp/service.log")),
+            ),
+        )
+        composeRule.setContent {
+            MaterialTheme(
+                colorScheme = appColorScheme(ReaderTheme.HIGH_CONTRAST_LIGHT, AppColorPalette.EMERALD),
+                typography = ReaderTypography,
+                shapes = ReaderShapes,
+            ) {
+                DocumentCopyExportMenuItem(document = document.value, onExport = {})
+            }
+        }
+
+        assertTrue(
+            "普通可写文件不应增加导出替代入口",
+            composeRule.onAllNodesWithTag("export-document-copy").fetchSemanticsNodes().isEmpty(),
+        )
+        composeRule.runOnIdle {
+            // 可写文件一旦进入分段大文件模式，也只能通过完整原始字节副本继续后续修改。 @author long
+            document.value = document.value.copy(canWrite = false, largeFile = true, hasMore = true)
+        }
+        composeRule.onNodeWithTag("export-document-copy").assertIsDisplayed()
+    }
+
+    @Test
     fun editorActionsSheetKeepsReadOnlyCommandsAvailableAndProtectsMutations() {
         val editable = mutableStateOf(false)
         var requestedCommand: ReaderCommandType? = null

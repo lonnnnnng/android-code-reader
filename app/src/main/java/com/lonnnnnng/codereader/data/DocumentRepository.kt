@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.content.Context
 import android.database.Cursor
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.system.Os
 import android.webkit.MimeTypeMap
@@ -53,10 +54,17 @@ class DocumentSaveException(
     cause: Throwable? = null,
 ) : IOException(message, cause)
 
+/** 导出进度以原始字节为单位，确保大文件分页和文本编码不会影响用户看到的真实进度。 @author long */
+data class DocumentExportProgress(
+    val copiedBytes: Long,
+    val totalBytes: Long?,
+)
+
 /** SAF 读写属于系统/Provider 边界，独立接口用于验证提供方中途失败和回滚行为。 @author long */
 interface SafDocumentAccess {
     fun openInput(uri: Uri): InputStream?
     fun openOutput(uri: Uri, mode: String): OutputStream?
+    fun delete(uri: Uri): Boolean = false
 }
 
 /** @author long */
@@ -65,6 +73,7 @@ private class ContentResolverSafDocumentAccess(
 ) : SafDocumentAccess {
     override fun openInput(uri: Uri): InputStream? = resolver.openInputStream(uri)
     override fun openOutput(uri: Uri, mode: String): OutputStream? = resolver.openOutputStream(uri, mode)
+    override fun delete(uri: Uri): Boolean = DocumentsContract.deleteDocument(resolver, uri)
 }
 
 /**
@@ -179,6 +188,54 @@ class DocumentRepository(
             is EntryLocation.Local -> saveLocalAtomically(location.file, bytes, document.name)
         }
         bytes.size.toLong()
+    }
+
+    /**
+     * 导出始终重新读取来源的完整原始字节，不能使用当前已解码正文，否则大文件只会得到首个分页。
+     *
+     * @author long
+     */
+    suspend fun exportOriginal(
+        document: OpenDocument,
+        targetUri: Uri,
+        onProgress: (DocumentExportProgress) -> Unit = {},
+    ): Long = withContext(Dispatchers.IO) {
+        val sourceUri = (document.location as? EntryLocation.Saf)?.uri
+        require(sourceUri != targetUri) { "导出目标不能与原文件相同" }
+        val totalBytes = when (val location = document.location) {
+            is EntryLocation.Local -> location.file.length().takeIf { it >= 0L }
+            is EntryLocation.Saf -> document.totalBytes.takeIf { it >= 0L }
+        }
+        var copiedBytes = 0L
+        var lastReportedBytes = 0L
+        onProgress(DocumentExportProgress(copiedBytes, totalBytes))
+        openInput(document.location).use { input ->
+            val output = safDocumentAccess.openOutput(targetUri, "w")
+                ?: throw IOException("文件提供方不允许创建导出副本：${document.name}")
+            output.use { stream ->
+                val buffer = ByteArray(EXPORT_BUFFER_BYTES)
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    stream.write(buffer, 0, read)
+                    copiedBytes += read
+                    if (copiedBytes - lastReportedBytes >= EXPORT_PROGRESS_STEP_BYTES) {
+                        lastReportedBytes = copiedBytes
+                        onProgress(DocumentExportProgress(copiedBytes, totalBytes))
+                    }
+                }
+                stream.flush()
+                (stream as? FileOutputStream)?.fd?.sync()
+            }
+        }
+        onProgress(DocumentExportProgress(copiedBytes, totalBytes))
+        copiedBytes
+    }
+
+    /** ACTION_CREATE_DOCUMENT 不覆盖已有文件，因此失败时可安全尝试删除本次新建的半成品。 @author long */
+    suspend fun deleteCreatedDocument(targetUri: Uri): Boolean = withContext(Dispatchers.IO) {
+        runCatching { safDocumentAccess.delete(targetUri) }.getOrDefault(false)
     }
 
     /**
@@ -548,7 +605,7 @@ class DocumentRepository(
 
     private fun openInput(location: EntryLocation): InputStream = when (location) {
         is EntryLocation.Local -> location.file.inputStream()
-        is EntryLocation.Saf -> resolver.openInputStream(location.uri) ?: error("无法继续读取文件")
+        is EntryLocation.Saf -> safDocumentAccess.openInput(location.uri) ?: error("无法继续读取文件")
     }
 
     /** 记录大文件当前解码器位置；连续加载复用流，随机/失效场景由 read() 回退。 @author long */
@@ -936,6 +993,8 @@ class DocumentRepository(
     private companion object {
         const val LARGE_FILE_PAGE_CHARACTERS = 256 * 1024
         const val SEARCH_PAGE_CHARACTERS = 256 * 1024
+        const val EXPORT_BUFFER_BYTES = 64 * 1024
+        const val EXPORT_PROGRESS_STEP_BYTES = 256 * 1024L
         const val FILE_SEARCH_PROGRESS_LINE_BATCH = 512
         const val INDEX_PROGRESS_BATCH = 32
         const val UNKNOWN_FILE_SIZE = -1L

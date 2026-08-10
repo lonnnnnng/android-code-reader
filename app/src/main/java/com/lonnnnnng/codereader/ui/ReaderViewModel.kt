@@ -9,6 +9,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.lonnnnnng.codereader.BuildConfig
 import com.lonnnnnng.codereader.data.DocumentRepository
+import com.lonnnnnng.codereader.data.DocumentExportProgress
 import com.lonnnnnng.codereader.data.DocumentSaveException
 import com.lonnnnnng.codereader.data.DocumentDraft
 import com.lonnnnnng.codereader.data.DraftFingerprint
@@ -55,6 +56,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -79,6 +81,26 @@ internal fun isSafDocumentInsideTree(documentUri: Uri, treeUri: Uri): Boolean = 
         .getOrElse { DocumentsContract.getTreeDocumentId(documentUri) }
     documentId == treeDocumentId || documentId.startsWith("$treeDocumentId/")
 }.getOrDefault(false)
+
+/** 未知大小的云端 SAF 文件使用不定进度；已知大小则把原始字节进度稳定限制在 0—100。 @author long */
+internal fun exportProgressPercent(progress: DocumentExportProgress): Int? {
+    val totalBytes = progress.totalBytes?.takeIf { it > 0L } ?: return null
+    return ((progress.copiedBytes.coerceAtLeast(0L).toDouble() / totalBytes) * 100.0)
+        .toInt()
+        .coerceIn(0, 100)
+}
+
+/** 进度说明同时显示已复制量和原文件总量，用户可以判断大文件导出是否仍在前进。 @author long */
+internal fun exportProgressDetail(progress: DocumentExportProgress): String = progress.totalBytes
+    ?.takeIf { it >= 0L }
+    ?.let { total -> "已复制 ${formatExportBytes(progress.copiedBytes)} / ${formatExportBytes(total)}" }
+    ?: "已复制 ${formatExportBytes(progress.copiedBytes)}"
+
+private fun formatExportBytes(bytes: Long): String = when {
+    bytes >= 1024L * 1024L -> "${bytes / (1024L * 1024L)} MB"
+    bytes >= 1024L -> "${bytes / 1024L} KB"
+    else -> "$bytes B"
+}
 
 /** @author long */
 enum class AppScreen { HOME, RECENT, SETTINGS, BROWSER, READER, BINARY, ERROR }
@@ -160,7 +182,7 @@ data class ReaderSettings(
 )
 
 /** 长耗时操作在全局遮罩中持续展示阶段、进度和取消能力，避免用户误以为应用没有响应。 @author long */
-enum class ReaderOperationKind { GENERAL, INDEX, GIT }
+enum class ReaderOperationKind { GENERAL, INDEX, GIT, EXPORT }
 
 /** @author long */
 data class ReaderOperationState(
@@ -321,6 +343,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private val updateOperationActive = AtomicBoolean(false)
     @Volatile private var activeGitMonitor: GitOperationProgressMonitor? = null
     @Volatile private var activeIndexJob: Job? = null
+    @Volatile private var activeExportJob: Job? = null
     private var projectSearchJob: Job? = null
     private var fileSearchJob: Job? = null
     private var fileSearchDocumentId: String? = null
@@ -468,14 +491,19 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun cancelOperation() {
         val kind = _state.value.operation?.kind
-        if (kind == ReaderOperationKind.GIT) activeGitMonitor?.cancel()
-        activeIndexJob?.cancel()
+        when (kind) {
+            ReaderOperationKind.GIT -> activeGitMonitor?.cancel()
+            ReaderOperationKind.INDEX -> activeIndexJob?.cancel()
+            ReaderOperationKind.EXPORT -> activeExportJob?.cancel(CancellationException("导出已取消"))
+            ReaderOperationKind.GENERAL, null -> Unit
+        }
         _state.update { current ->
             val operation = current.operation ?: return@update current
-            val detail = if (operation.kind == ReaderOperationKind.INDEX) {
-                "正在取消目录索引…"
-            } else {
-                "正在取消 Git 操作…"
+            val detail = when (operation.kind) {
+                ReaderOperationKind.INDEX -> "正在取消目录索引…"
+                ReaderOperationKind.GIT -> "正在取消 Git 操作…"
+                ReaderOperationKind.EXPORT -> "正在取消导出并清理半成品…"
+                ReaderOperationKind.GENERAL -> operation.detail
             }
             current.copy(operation = operation.copy(detail = detail, cancellable = false))
         }
@@ -837,7 +865,15 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     fun setEditable(enabled: Boolean) {
         val document = _state.value.document ?: return
         if (enabled && !document.canWrite) {
-            _state.update { it.copy(message = if (document.largeFile) "大文件分段模式只允许读取" else "当前来源只允许读取，无法进入编辑模式") }
+            _state.update {
+                it.copy(
+                    message = if (document.largeFile) {
+                        "大文件分段模式只允许读取，可从“更多”导出完整副本"
+                    } else {
+                        "当前来源只允许读取，可从“更多”导出副本"
+                    },
+                )
+            }
             return
         }
         updateActiveTab { it.copy(editable = enabled) }
@@ -1065,6 +1101,86 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 ?.let { scheduleDraftPersistence(it.document.id) }
             _state.update { it.copy(message = "已保存 ${tab.document.name}") }
         }
+    }
+
+    /**
+     * 系统文件创建器已经生成一个全新目标；导出失败或取消时尝试删除半成品，避免残缺文件被误认为成功结果。
+     *
+     * @author long
+     */
+    fun exportDocumentCopy(documentId: String, targetUri: Uri) {
+        if (activeExportJob?.isActive == true) {
+            _state.update { it.copy(message = "已有文件正在导出") }
+            return
+        }
+        val document = _state.value.tabs.firstOrNull { it.document.id == documentId }?.document
+        if (document == null) {
+            _state.update { it.copy(message = "当前文件已经关闭，无法继续导出") }
+            return
+        }
+        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            _state.update {
+                it.copy(
+                    operation = ReaderOperationState(
+                        title = "正在导出原文件副本",
+                        detail = "正在读取 ${document.name}",
+                        progressPercent = 0.takeIf { document.totalBytes > 0 },
+                        cancellable = true,
+                        kind = ReaderOperationKind.EXPORT,
+                    ),
+                    message = null,
+                )
+            }
+            try {
+                repository.exportOriginal(document, targetUri) { progress ->
+                    _state.update { current ->
+                        val operation = current.operation?.takeIf { it.kind == ReaderOperationKind.EXPORT }
+                            ?: return@update current
+                        current.copy(
+                            operation = operation.copy(
+                                detail = exportProgressDetail(progress),
+                                progressPercent = exportProgressPercent(progress),
+                            ),
+                        )
+                    }
+                }
+                _state.update { it.copy(message = "已导出完整副本：${document.name}") }
+            } catch (cancelled: CancellationException) {
+                val removed = withContext(NonCancellable) { repository.deleteCreatedDocument(targetUri) }
+                _state.update {
+                    it.copy(
+                        message = if (removed) {
+                            "已取消导出，未保留不完整文件"
+                        } else {
+                            "已取消导出，目标文件可能不完整"
+                        },
+                    )
+                }
+            } catch (error: Throwable) {
+                val removed = withContext(NonCancellable) { repository.deleteCreatedDocument(targetUri) }
+                val detail = error.message ?: error.javaClass.simpleName
+                _state.update {
+                    it.copy(
+                        message = if (removed) {
+                            "导出失败，已删除不完整文件：$detail"
+                        } else {
+                            "导出失败，目标文件可能不完整：$detail"
+                        },
+                    )
+                }
+            } finally {
+                if (activeExportJob === coroutineContext[Job]) activeExportJob = null
+                _state.update { current ->
+                    if (current.operation?.kind == ReaderOperationKind.EXPORT) {
+                        current.copy(operation = null)
+                    } else {
+                        current
+                    }
+                }
+            }
+        }
+        activeExportJob = job
+        job.start()
     }
 
     fun loadMore() {
