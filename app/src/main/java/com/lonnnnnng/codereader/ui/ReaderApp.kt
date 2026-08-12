@@ -547,6 +547,7 @@ fun ReaderApp(viewModel: ReaderViewModel) {
                 preview = preview,
                 onDismiss = viewModel::dismissGitUpdatePreview,
                 onApply = viewModel::applyGitUpdatePreview,
+                onOpenConflictFile = viewModel::openGitConflictFile,
             )
         }
 

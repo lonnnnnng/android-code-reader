@@ -110,6 +110,7 @@ class DialogLayoutInstrumentedTest {
 
     @Test
     fun gitUpdatePreviewShowsRemoteScopeAndDisablesApplyForLocalChanges() {
+        var conflictPath: String? = null
         val preview = mutableStateOf(
             GitUpdatePreview(
                 branchName = "main",
@@ -145,7 +146,12 @@ class DialogLayoutInstrumentedTest {
                 typography = ReaderTypography,
                 shapes = ReaderShapes,
             ) {
-                GitUpdatePreviewDialog(preview.value, onDismiss = {}, onApply = {})
+                GitUpdatePreviewDialog(
+                    preview.value,
+                    onDismiss = {},
+                    onApply = {},
+                    onOpenConflictFile = { conflictPath = it },
+                )
             }
         }
 
@@ -168,6 +174,18 @@ class DialogLayoutInstrumentedTest {
         composeRule.onNodeWithText("发现 1 个本地修改，安全更新已暂停").assertIsDisplayed()
         composeRule.onNodeWithText("未保存").assertIsDisplayed()
         composeRule.onNodeWithTag("git-update-apply").assertIsNotEnabled()
+
+        composeRule.runOnIdle {
+            preview.value = preview.value.copy(
+                localChanges = listOf(
+                    GitLocalChange("app/src/main/App.kt", GitLocalChangeKind.CONFLICTED),
+                ),
+            )
+        }
+        composeRule.onNodeWithText("冲突文件仅支持只读查看。灵阅不会自动合并；请在外部 Git 工具处理冲突并保存后，再重新检查仓库。")
+            .assertIsDisplayed()
+        composeRule.onNodeWithTag("git-conflict-path").performClick()
+        composeRule.runOnIdle { assertTrue(conflictPath == "app/src/main/App.kt") }
     }
 
     @Test

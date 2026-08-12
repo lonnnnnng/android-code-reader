@@ -1,6 +1,7 @@
 package com.lonnnnnng.codereader.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -42,6 +43,7 @@ internal fun GitUpdatePreviewDialog(
     preview: GitUpdatePreview,
     onDismiss: () -> Unit,
     onApply: () -> Unit,
+    onOpenConflictFile: (String) -> Unit = {},
 ) {
     val upstream = preview.upstreamName ?: "未设置上游"
     val relationText = when (preview.relation) {
@@ -142,6 +144,9 @@ internal fun GitUpdatePreviewDialog(
                         },
                         path = change.path,
                         error = true,
+                        onClick = if (change.kind == GitLocalChangeKind.CONFLICTED) {
+                            { onOpenConflictFile(change.path) }
+                        } else null,
                     )
                 }
                 if (preview.localChangesTruncated || preview.localChanges.size > GIT_PREVIEW_VISIBLE_ITEMS) {
@@ -149,6 +154,13 @@ internal fun GitUpdatePreviewDialog(
                         "其余本地修改未展开显示",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (preview.localChanges.any { it.kind == GitLocalChangeKind.CONFLICTED }) {
+                    Text(
+                        "冲突文件仅支持只读查看。灵阅不会自动合并；请在外部 Git 工具处理冲突并保存后，再重新检查仓库。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
                     )
                 }
             }
@@ -233,9 +245,13 @@ private fun GitPreviewPathRow(
     label: String,
     path: String,
     error: Boolean = false,
+    onClick: (() -> Unit)? = null,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.testTag("git-conflict-path") else Modifier)
+            .then(onClick?.let { Modifier.clickable(onClick = it) } ?: Modifier),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

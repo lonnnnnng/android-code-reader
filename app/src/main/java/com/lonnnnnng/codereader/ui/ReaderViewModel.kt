@@ -208,6 +208,7 @@ sealed interface ReaderRetryAction {
     data class OpenReadingBookmark(val bookmark: ReadingDocumentState) : ReaderRetryAction
     data class OpenBundledProject(val assetPath: String, val targetName: String) : ReaderRetryAction
     data class RefreshProject(val root: EntryLocation, val title: String) : ReaderRetryAction
+    data class OpenGitConflictFile(val path: String) : ReaderRetryAction
     data class GotoLine(val line: Int) : ReaderRetryAction
     data object Save : ReaderRetryAction
     data object LoadMore : ReaderRetryAction
@@ -478,6 +479,34 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun dismissGitUpdatePreview() {
         _state.update { it.copy(gitUpdatePreview = null) }
+    }
+
+    fun openGitConflictFile(path: String) {
+        val root = _state.value.gitRepositoryRoot?.let(::File) ?: return
+        val candidate = File(root, path)
+        // 冲突路径来自 Git 工作区状态，打开前必须重新约束到仓库根目录内，避免状态变化或恶意路径越界。 @author long
+        val safeFile = runCatching {
+            val rootPath = root.canonicalPath
+            val filePath = candidate.canonicalPath
+            candidate.takeIf {
+                it.isFile && (filePath == rootPath || filePath.startsWith(rootPath + File.separator))
+            }
+        }.getOrNull()
+        if (safeFile == null) {
+            _state.update { it.copy(message = "冲突文件已不存在，请重新检查 Git 状态") }
+            return
+        }
+        val existingTab = _state.value.tabs.firstOrNull { it.document.id == safeFile.absolutePath }
+        if (existingTab?.dirty == true) {
+            _state.update { it.copy(message = "冲突文件已有未保存内容，请先处理或关闭当前标签") }
+            return
+        }
+        launchBusy(ReaderRetryAction.OpenGitConflictFile(path)) {
+            val document = repository.openLocal(safeFile).copy(canWrite = false)
+            openDocumentWithStoredPosition(document, replaceExistingDocument = true)
+            updateActiveTab { it.copy(document = it.document.copy(canWrite = false), editable = false) }
+            _state.update { it.copy(gitUpdatePreview = null, message = "已只读打开冲突文件；请在外部 Git 工具处理后重新检查") }
+        }
     }
 
     fun applyGitUpdatePreview() {
@@ -1947,6 +1976,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             is ReaderRetryAction.OpenReadingBookmark -> openReadingBookmark(action.bookmark)
             is ReaderRetryAction.OpenBundledProject -> openBundledProject(action.assetPath, action.targetName)
             is ReaderRetryAction.RefreshProject -> refreshProject(action.root, action.title)
+            is ReaderRetryAction.OpenGitConflictFile -> openGitConflictFile(action.path)
             is ReaderRetryAction.GotoLine -> gotoLine(action.line)
             ReaderRetryAction.Save -> save()
             ReaderRetryAction.LoadMore -> loadMore()
@@ -2228,7 +2258,11 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             ?: false
     }
 
-    private suspend fun openDocumentWithStoredPosition(document: OpenDocument, requestedLine: Int? = null) {
+    private suspend fun openDocumentWithStoredPosition(
+        document: OpenDocument,
+        requestedLine: Int? = null,
+        replaceExistingDocument: Boolean = false,
+    ) {
         val storedLine = _state.value.readingStates
             .firstOrNull { it.documentId == document.id }
             ?.lastViewedLine
@@ -2243,6 +2277,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             document = loaded,
             initialLine = targetLine.takeIf { requestedLine != null || it > 1 },
             currentLine = targetLine,
+            replaceExistingDocument = replaceExistingDocument,
         )
     }
 
@@ -2250,6 +2285,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         document: OpenDocument,
         initialLine: Int? = null,
         currentLine: Int = initialLine ?: 1,
+        replaceExistingDocument: Boolean = false,
     ) {
         val existingBeforeOpen = _state.value.tabs.any { it.document.id == document.id }
         val storedDraft = if (existingBeforeOpen) null else withContext(Dispatchers.IO) {
@@ -2291,6 +2327,16 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 current.tabs.map { tab ->
                     if (tab.document.id != document.id) return@map tab
                     var updated = tab
+                    if (replaceExistingDocument && !tab.dirty) {
+                        updated = tab.copy(
+                            document = document,
+                            draftText = document.text,
+                            editable = false,
+                            dirty = false,
+                            canUndo = false,
+                            canRedo = false,
+                        ).withoutFileSearch()
+                    }
                     if (document.largeFile && document.loadedCharacters > tab.document.loadedCharacters) {
                         updated = updated.copy(document = document, draftText = document.text)
                     }
