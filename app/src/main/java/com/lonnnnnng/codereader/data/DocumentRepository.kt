@@ -22,6 +22,7 @@ import com.lonnnnnng.codereader.model.ProjectTreeEntry
 import com.lonnnnnng.codereader.model.SourceEntry
 import com.lonnnnnng.codereader.model.TextEncoding
 import com.lonnnnnng.codereader.model.TextEncodingDetector
+import com.lonnnnnng.codereader.model.NewFileTemplate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -44,13 +45,16 @@ import java.io.OutputStream
 import java.io.PushbackInputStream
 import java.util.concurrent.ConcurrentHashMap
 
-internal fun normalizeNewFileName(value: String): String {
+internal fun normalizeNewFileName(value: String, template: NewFileTemplate? = null): String {
     val name = value.trim()
     require(name.isNotBlank()) { "请输入文件名" }
     require(name != "." && name != "..") { "文件名不能是 . 或 .." }
     require(name.length <= 255) { "文件名不能超过 255 个字符" }
     require(name.none { it == '/' || it == '\\' || it.isISOControl() }) { "文件名不能包含路径分隔符或控制字符" }
-    return name
+    val completedName = template?.ensureExtension(name) ?: name
+    require(completedName.length <= 255) { "文件名不能超过 255 个字符" }
+    require(completedName != "." && completedName != "..") { "文件名不能是 . 或 .." }
+    return completedName
 }
 
 /** 项目搜索只返回手机端可流畅浏览的前 200 条，UI 会明确提示该显示上限。 @author long */
@@ -208,8 +212,31 @@ class DocumentRepository(
         }
     }
 
-    suspend fun createTextFile(root: EntryLocation, name: String): OpenDocument = withContext(Dispatchers.IO) {
+    /**
+     * 保留旧调用方的纯文本创建能力；新增文件 UI 必须走模板入口，避免默认生成 txt 空文件。
+     *
+     * @author long
+     */
+    suspend fun createTextFile(root: EntryLocation, name: String): OpenDocument =
+        createFile(root, name, "text/plain", "")
+
+    suspend fun createTemplateFile(
+        root: EntryLocation,
+        name: String,
+        template: NewFileTemplate,
+    ): OpenDocument = withContext(Dispatchers.IO) {
+        val normalizedName = normalizeNewFileName(name, template)
+        createFile(root, normalizedName, template.mimeType, template.content)
+    }
+
+    private suspend fun createFile(
+        root: EntryLocation,
+        name: String,
+        mimeType: String,
+        content: String,
+    ): OpenDocument = withContext(Dispatchers.IO) {
         val normalizedName = normalizeNewFileName(name)
+        val bytes = content.toByteArray(Charsets.UTF_8)
         when (root) {
             is EntryLocation.Local -> {
                 val directory = root.file.canonicalFile
@@ -218,7 +245,13 @@ class DocumentRepository(
                 require(target.parentFile == directory) { "文件名不能跳出项目目录" }
                 require(!target.exists()) { "文件已存在：$normalizedName" }
                 check(target.createNewFile()) { "无法创建文件：$normalizedName" }
-                runCatching { openLocal(target) }.getOrElse { error ->
+                runCatching {
+                    FileOutputStream(target).use { output ->
+                        output.write(bytes)
+                        output.flush()
+                    }
+                    openLocal(target)
+                }.getOrElse { error ->
                     target.delete()
                     throw error
                 }
@@ -226,9 +259,17 @@ class DocumentRepository(
             is EntryLocation.Saf -> {
                 val directory = DocumentFile.fromTreeUri(context, root.uri)
                 require(directory?.isDirectory == true && directory.canWrite()) { "当前项目目录不可写" }
-                val created = directory.createFile("text/plain", normalizedName)
+                val created = directory.createFile(mimeType, normalizedName)
                     ?: error("无法创建文件：$normalizedName")
-                runCatching { openUri(created.uri, normalizedName) }.getOrElse { error ->
+                runCatching {
+                    val output = safDocumentAccess.openOutput(created.uri, "wt")
+                        ?: error("文件提供方不允许写入：$normalizedName")
+                    output.use { stream ->
+                        stream.write(bytes)
+                        stream.flush()
+                    }
+                    openUri(created.uri, normalizedName)
+                }.getOrElse { error ->
                     runCatching { DocumentsContract.deleteDocument(resolver, created.uri) }
                     throw error
                 }

@@ -69,7 +69,7 @@
 - 文件内搜索、项目全局搜索、文件名/路径筛选、命中高亮和精确行列跳转。
 - 多文件标签页；每个标签页独立保留草稿、编辑状态、Markdown 模式和阅读位置，未保存草稿可在进程重建后恢复。
 - 文件书签、行书签、跳转到行、自动换行和完整路径复制。
-- 在可写项目根目录新增空文本文件；Local、应用内导入的 ZIP、已克隆 Git 工作区和可写 SAF 目录都按底层写权限决定是否显示入口，创建后立即打开并进入编辑状态。
+- 在可写项目根目录新增文件；创建前可选择 Markdown、Java、Kotlin、Python、Go、Rust、JavaScript、TypeScript、HTML、CSS、Vue、JSON、YAML、TOML、SQL、Shell、C/C++、C#、PHP、XML 等类型，自动生成对应扩展名和可直接编辑的最小代码骨架。Local、应用内导入的 ZIP、已克隆 Git 工作区和可写 SAF 目录都按底层写权限决定是否显示入口，创建后立即打开并进入编辑状态。
 - 大文件按设备内存预算进入分段只读模式，搜索可以扫描到尚未加载的后半段，并可按原始字节导出完整副本。
 
 ### Markdown 不只是纯文本
@@ -102,12 +102,12 @@ Markdown 源码与预览一键切换，预览内核完全使用 APK 内置资源
 
 从 [Releases](https://github.com/lonnnnnng/android-code-reader/releases) 下载正式 APK。当前正式版本：
 
-**[灵阅 v0.1.22](https://github.com/lonnnnnng/android-code-reader/releases/tag/v0.1.22)**
+**[灵阅 v0.1.23](https://github.com/lonnnnnng/android-code-reader/releases/tag/v0.1.23)**
 
 安装包：
 
-- [AndroidCodeReader-v0.1.22.apk](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.22/AndroidCodeReader-v0.1.22.apk)
-- [SHA256SUMS](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.22/SHA256SUMS)
+- [AndroidCodeReader-v0.1.23.apk](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.23/AndroidCodeReader-v0.1.23.apk)
+- [SHA256SUMS](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.23/SHA256SUMS)
 
 ### 三步开始阅读
 
@@ -225,7 +225,7 @@ flowchart LR
 
 当前质量基线：
 
-- `Pixel_9` Android 模拟器上一阶段全量 instrumentation：`83/83` 通过；`v0.1.20` 新增冲突预览切片定向 UI 回归：`1/1` 通过。
+- `Pixel_9` Android 模拟器当前全量 instrumentation：`89/89` 通过；覆盖新增文件类型选择、扩展名补齐和模板正文写入。
 - 语法覆盖：`78/78` 通过。
 - 覆盖 ZIP 路径安全、Git 克隆/更新预览/修改保护/精确快进、项目完整索引、大文件分段搜索、Markdown DOM 与本地资源渲染、编辑器输入偏好、常用行与剪贴板操作、跨进程草稿恢复、安全保存、完整原始字节副本导出、导出取消与失败清理、设置持久化和在线更新校验。
 - 当前项目回归严格使用 Pixel_9 模拟器；Redmi Note 8 Pro 真机不属于当前验证范围。

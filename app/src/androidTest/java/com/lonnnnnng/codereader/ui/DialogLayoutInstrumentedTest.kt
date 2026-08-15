@@ -18,6 +18,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.unit.dp
@@ -281,21 +282,57 @@ class DialogLayoutInstrumentedTest {
     @Test
     fun createFileDialogValidatesNameAndReturnsNormalizedFileName() {
         var createdName: String? = null
+        var createdType: FileType? = null
         composeRule.setContent {
             MaterialTheme(
                 colorScheme = appColorScheme(ReaderTheme.HIGH_CONTRAST_LIGHT, AppColorPalette.EMERALD),
                 typography = ReaderTypography,
                 shapes = ReaderShapes,
             ) {
-                CreateFileDialog(onDismiss = {}, onCreate = { createdName = it })
+                CreateFileDialog(onDismiss = {}, onCreate = { name, template ->
+                    createdName = name
+                    createdType = template.fileType
+                })
             }
         }
 
         composeRule.onNodeWithTag("create-file-dialog").assertIsDisplayed()
-        composeRule.onNodeWithTag("create-file-confirm").assertIsNotEnabled()
+        composeRule.onNodeWithTag("create-file-confirm").assertIsEnabled()
+        composeRule.onNodeWithTag("create-file-name").performTextClearance()
         composeRule.onNodeWithTag("create-file-name").performTextInput("  README.md  ")
         composeRule.onNodeWithTag("create-file-confirm").assertIsEnabled().performClick()
-        composeRule.runOnIdle { assertTrue("README.md" == createdName) }
+        composeRule.runOnIdle {
+            assertTrue("README.md" == createdName)
+            assertTrue(FileType.MARKDOWN == createdType)
+        }
+    }
+
+    @Test
+    fun createFileDialogSelectsTypeAndBuildsMatchingExtension() {
+        var createdName: String? = null
+        var createdType: FileType? = null
+        composeRule.setContent {
+            MaterialTheme(
+                colorScheme = appColorScheme(ReaderTheme.HIGH_CONTRAST_LIGHT, AppColorPalette.EMERALD),
+                typography = ReaderTypography,
+                shapes = ReaderShapes,
+            ) {
+                CreateFileDialog(onDismiss = {}, onCreate = { name, template ->
+                    createdName = name
+                    createdType = template.fileType
+                })
+            }
+        }
+
+        composeRule.onNodeWithTag("create-file-type").performClick()
+        composeRule.onNodeWithText("Python").performClick()
+        composeRule.onNodeWithTag("create-file-name").performTextClearance()
+        composeRule.onNodeWithTag("create-file-name").performTextInput("worker")
+        composeRule.onNodeWithTag("create-file-confirm").assertIsEnabled().performClick()
+        composeRule.runOnIdle {
+            assertTrue("worker.py" == createdName)
+            assertTrue(FileType.PYTHON == createdType)
+        }
     }
 
     @Test

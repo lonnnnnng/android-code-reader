@@ -182,6 +182,7 @@ import com.lonnnnnng.codereader.model.BinaryFileInfo
 import com.lonnnnnng.codereader.model.EntryLocation
 import com.lonnnnnng.codereader.model.FileType
 import com.lonnnnnng.codereader.model.OpenDocument
+import com.lonnnnnng.codereader.model.NewFileTemplate
 import com.lonnnnnng.codereader.model.ProjectSearchResult
 import com.lonnnnnng.codereader.model.ProjectTreeEntry
 import com.lonnnnnng.codereader.model.ReaderBackground
@@ -583,9 +584,9 @@ fun ReaderApp(viewModel: ReaderViewModel) {
         if (showCreateFileDialog) {
             CreateFileDialog(
                 onDismiss = { showCreateFileDialog = false },
-                onCreate = { name ->
+                onCreate = { name, template ->
                     showCreateFileDialog = false
-                    viewModel.createFile(name)
+                    viewModel.createFile(name, template)
                 },
             )
         }
@@ -4486,15 +4487,27 @@ internal fun GitCloneDialog(onDismiss: () -> Unit, onClone: (String) -> Unit) {
 }
 
 @Composable
-internal fun CreateFileDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit) {
-    var name by remember { mutableStateOf("") }
+@OptIn(ExperimentalMaterial3Api::class)
+internal fun CreateFileDialog(
+    onDismiss: () -> Unit,
+    onCreate: (String, NewFileTemplate) -> Unit,
+) {
+    var selectedTemplate by remember { mutableStateOf(NewFileTemplate.default) }
+    var name by remember { mutableStateOf(NewFileTemplate.default.defaultName) }
+    var nameTouched by remember { mutableStateOf(false) }
+    var typeMenuExpanded by remember { mutableStateOf(false) }
     val normalizedName = name.trim()
-    val validationError = if (normalizedName.isBlank()) {
+    val completedName = if (normalizedName.isBlank()) {
+        ""
+    } else {
+        selectedTemplate.ensureExtension(normalizedName)
+    }
+    val validationError = if (completedName.isBlank()) {
         null
     } else {
-        runCatching { normalizeNewFileName(normalizedName) }.exceptionOrNull()?.message
+        runCatching { normalizeNewFileName(completedName, selectedTemplate) }.exceptionOrNull()?.message
     }
-    val validName = normalizedName.isNotBlank() && validationError == null
+    val validName = completedName.isNotBlank() && validationError == null
     ReaderDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier.testTag("create-file-dialog"),
@@ -4505,7 +4518,7 @@ internal fun CreateFileDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit)
                 Text("取消")
             }
             Button(
-                onClick = { onCreate(normalizedName) },
+                onClick = { onCreate(completedName, selectedTemplate) },
                 enabled = validName,
                 modifier = Modifier.testTag("create-file-confirm"),
             ) {
@@ -4517,26 +4530,102 @@ internal fun CreateFileDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
-                "文件将在当前项目根目录创建，创建后会立即打开并进入编辑页。",
+                "先选择类型，灵阅会生成对应扩展名和可直接编辑的空架子。文件将在当前项目根目录创建。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            ExposedDropdownMenuBox(
+                expanded = typeMenuExpanded,
+                onExpandedChange = { typeMenuExpanded = !typeMenuExpanded },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                OutlinedTextField(
+                    value = selectedTemplate.displayName,
+                    onValueChange = {},
+                    readOnly = true,
+                    singleLine = true,
+                    label = { Text("文件类型") },
+                    supportingText = { Text("默认文件名：${selectedTemplate.defaultName}") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(typeMenuExpanded) },
+                    shape = MaterialTheme.shapes.medium,
+                    colors = readerOverlayTextFieldColors(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                        .testTag("create-file-type"),
+                )
+                ExposedDropdownMenu(
+                    expanded = typeMenuExpanded,
+                    onDismissRequest = { typeMenuExpanded = false },
+                    modifier = Modifier.readerMenuSurface().heightIn(max = 380.dp),
+                ) {
+                    NewFileTemplate.options.forEach { option ->
+                        DropdownMenuItem(
+                            text = {
+                                Column {
+                                    Text(
+                                        option.displayName,
+                                        fontWeight = if (option == selectedTemplate) FontWeight.SemiBold else FontWeight.Normal,
+                                    )
+                                    Text(
+                                        option.defaultName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            },
+                            onClick = {
+                                typeMenuExpanded = false
+                                selectedTemplate = option
+                                val current = name.trim()
+                                name = if (!nameTouched || current.isBlank()) {
+                                    option.defaultName
+                                } else {
+                                    option.ensureExtension(current.substringBeforeLast('.', current))
+                                }
+                            },
+                            modifier = Modifier.heightIn(min = ReaderDimens.compactRowMinHeight),
+                        )
+                    }
+                }
+            }
             OutlinedTextField(
                 value = name,
-                onValueChange = { name = it },
+                onValueChange = {
+                    nameTouched = true
+                    name = it
+                },
                 label = { Text("文件名") },
-                placeholder = { Text("例如 README.md 或 main.kt") },
+                placeholder = { Text(selectedTemplate.defaultName) },
                 supportingText = {
-                    Text(validationError ?: "支持常见源码、配置和 Markdown 文件名")
+                    Text(validationError ?: "将创建为：$completedName")
                 },
                 isError = validationError != null,
                 singleLine = true,
                 shape = MaterialTheme.shapes.medium,
                 colors = readerOverlayTextFieldColors(),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { if (validName) onCreate(normalizedName) }),
+                keyboardActions = KeyboardActions(onDone = {
+                    if (validName) onCreate(completedName, selectedTemplate)
+                }),
                 modifier = Modifier.fillMaxWidth().testTag("create-file-name"),
             )
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier.fillMaxWidth().testTag("create-file-template-preview"),
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                    Text("模板预览", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        selectedTemplate.content.ifBlank { "（纯文本文件，正文为空）" },
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 6,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
         }
     }
 }

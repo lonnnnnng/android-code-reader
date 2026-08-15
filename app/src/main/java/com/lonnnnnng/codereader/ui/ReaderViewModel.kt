@@ -45,6 +45,7 @@ import com.lonnnnnng.codereader.model.BinaryFileException
 import com.lonnnnnng.codereader.model.BinaryFileInfo
 import com.lonnnnnng.codereader.model.EntryLocation
 import com.lonnnnnng.codereader.model.OpenDocument
+import com.lonnnnnng.codereader.model.NewFileTemplate
 import com.lonnnnnng.codereader.model.ProjectIndexProgress
 import com.lonnnnnng.codereader.model.ProjectSearchResult
 import com.lonnnnnng.codereader.model.ProjectTreeEntry
@@ -210,7 +211,7 @@ sealed interface ReaderRetryAction {
     data class OpenBundledProject(val assetPath: String, val targetName: String) : ReaderRetryAction
     data class RefreshProject(val root: EntryLocation, val title: String) : ReaderRetryAction
     data class OpenGitConflictFile(val path: String) : ReaderRetryAction
-    data class CreateFile(val root: EntryLocation, val name: String) : ReaderRetryAction
+    data class CreateFile(val root: EntryLocation, val name: String, val templateId: String) : ReaderRetryAction
     data class GotoLine(val line: Int) : ReaderRetryAction
     data object Save : ReaderRetryAction
     data object LoadMore : ReaderRetryAction
@@ -452,23 +453,25 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         openLocalRoot(importer.importZip(uri), rememberRecent = true)
     }
 
-    fun createFile(name: String) {
+    fun createFile(name: String) = createFile(name, NewFileTemplate.default)
+
+    fun createFile(name: String, template: NewFileTemplate) {
         val root = _state.value.projectRoot
         if (root == null) {
             _state.update { it.copy(message = "请先打开一个项目") }
             return
         }
-        val normalizedName = runCatching { normalizeNewFileName(name) }.getOrElse { error ->
+        val normalizedName = runCatching { normalizeNewFileName(name, template) }.getOrElse { error ->
             _state.update { it.copy(message = error.message ?: "文件名无效") }
             return
         }
-        createFile(root, normalizedName)
+        createFile(root, normalizedName, template)
     }
 
-    private fun createFile(root: EntryLocation, name: String) = launchBusy(
-        ReaderRetryAction.CreateFile(root, name),
+    private fun createFile(root: EntryLocation, name: String, template: NewFileTemplate) = launchBusy(
+        ReaderRetryAction.CreateFile(root, name, template.id),
     ) {
-        val document = repository.createTextFile(root, name)
+        val document = repository.createTemplateFile(root, name, template)
         updateOperationDetail("正在刷新项目目录")
         val index = buildProjectIndex(root, forceRefresh = true)
         val canCreate = repository.canCreateFile(root)
@@ -2019,7 +2022,11 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             is ReaderRetryAction.OpenBundledProject -> openBundledProject(action.assetPath, action.targetName)
             is ReaderRetryAction.RefreshProject -> refreshProject(action.root, action.title)
             is ReaderRetryAction.OpenGitConflictFile -> openGitConflictFile(action.path)
-            is ReaderRetryAction.CreateFile -> createFile(action.root, action.name)
+            is ReaderRetryAction.CreateFile -> createFile(
+                action.root,
+                action.name,
+                NewFileTemplate.find(action.templateId),
+            )
             is ReaderRetryAction.GotoLine -> gotoLine(action.line)
             ReaderRetryAction.Save -> save()
             ReaderRetryAction.LoadMore -> loadMore()
