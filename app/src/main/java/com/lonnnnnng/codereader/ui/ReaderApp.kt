@@ -61,6 +61,7 @@ import androidx.compose.material.icons.automirrored.outlined.NavigateNext
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.automirrored.outlined.Redo
 import androidx.compose.material.icons.automirrored.outlined.Undo
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.BookmarkRemove
@@ -169,6 +170,7 @@ import com.lonnnnnng.codereader.BuildConfig
 import com.lonnnnnng.codereader.data.GitRepositoryAddress
 import com.lonnnnnng.codereader.data.ReadingDocumentState
 import com.lonnnnnng.codereader.data.RecentProjectRecord
+import com.lonnnnnng.codereader.data.normalizeNewFileName
 import com.lonnnnnng.codereader.domain.ProjectSearchOptions
 import com.lonnnnnng.codereader.domain.ProjectSearchScope
 import com.lonnnnnng.codereader.domain.MarkdownHeading
@@ -200,6 +202,7 @@ fun ReaderApp(viewModel: ReaderViewModel) {
     val snackbar = remember { SnackbarHostState() }
     val colors = appColorScheme(state.theme, state.settings.appPalette)
     var showGitDialog by remember { mutableStateOf(false) }
+    var showCreateFileDialog by remember { mutableStateOf(false) }
     var showExitConfirmation by rememberSaveable { mutableStateOf(false) }
     var pendingHtmlExportPath by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingDocumentExportId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -380,7 +383,9 @@ fun ReaderApp(viewModel: ReaderViewModel) {
                             onNextSearchResult = { viewModel.openAdjacentProjectSearchResult(true) },
                             onUpdateGit = viewModel::updateGitRepository,
                             onRefresh = viewModel::refreshProject,
+                            onCreateFile = { showCreateFileDialog = true },
                             onToggleTheme = viewModel::toggleTheme,
+                            canCreateFile = state.projectCanCreateFile,
                         )
                             AppScreen.READER -> ReaderScreen(
                             state = state,
@@ -548,6 +553,16 @@ fun ReaderApp(viewModel: ReaderViewModel) {
                 onDismiss = viewModel::dismissGitUpdatePreview,
                 onApply = viewModel::applyGitUpdatePreview,
                 onOpenConflictFile = viewModel::openGitConflictFile,
+            )
+        }
+
+        if (showCreateFileDialog) {
+            CreateFileDialog(
+                onDismiss = { showCreateFileDialog = false },
+                onCreate = { name ->
+                    showCreateFileDialog = false
+                    viewModel.createFile(name)
+                },
             )
         }
 
@@ -1916,6 +1931,8 @@ internal fun BrowserScreen(
     onUpdateGit: () -> Unit,
     onToggleTheme: () -> Unit,
     onRefresh: () -> Unit = {},
+    onCreateFile: () -> Unit = {},
+    canCreateFile: Boolean = false,
 ) {
     val browserTitle = state.browserTitle ?: return
     var searchVisible by rememberSaveable(browserTitle) { mutableStateOf(state.projectSearchQuery.isNotBlank()) }
@@ -1965,6 +1982,13 @@ internal fun BrowserScreen(
                 )
                 // 搜索模式只保留关闭入口，避免窄屏标题栏同时堆放四组操作。 @author long
                 if (!searchVisible) {
+                    if (canCreateFile) {
+                        HeaderIconButton(
+                            icon = Icons.Outlined.Add,
+                            contentDescription = "新增文件",
+                            onClick = onCreateFile,
+                        )
+                    }
                     HeaderIconButton(
                         icon = Icons.Outlined.Refresh,
                         contentDescription = "刷新项目目录",
@@ -4391,6 +4415,62 @@ internal fun GitCloneDialog(onDismiss: () -> Unit, onClone: (String) -> Unit) {
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { if (validUrl) onClone(normalizedUrl) }),
                 modifier = Modifier.fillMaxWidth().testTag("git-url-input"),
+            )
+        }
+    }
+}
+
+@Composable
+internal fun CreateFileDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit) {
+    var name by remember { mutableStateOf("") }
+    val normalizedName = name.trim()
+    val validationError = if (normalizedName.isBlank()) {
+        null
+    } else {
+        runCatching { normalizeNewFileName(normalizedName) }.exceptionOrNull()?.message
+    }
+    val validName = normalizedName.isNotBlank() && validationError == null
+    ReaderDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.testTag("create-file-dialog"),
+        title = "新增文件",
+        icon = Icons.Outlined.Add,
+        actions = {
+            TextButton(onClick = onDismiss, modifier = Modifier.testTag("create-file-cancel")) {
+                Text("取消")
+            }
+            Button(
+                onClick = { onCreate(normalizedName) },
+                enabled = validName,
+                modifier = Modifier.testTag("create-file-confirm"),
+            ) {
+                Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("创建并打开")
+            }
+        },
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                "文件将在当前项目根目录创建，创建后会立即打开并进入编辑页。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("文件名") },
+                placeholder = { Text("例如 README.md 或 main.kt") },
+                supportingText = {
+                    Text(validationError ?: "支持常见源码、配置和 Markdown 文件名")
+                },
+                isError = validationError != null,
+                singleLine = true,
+                shape = MaterialTheme.shapes.medium,
+                colors = readerOverlayTextFieldColors(),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { if (validName) onCreate(normalizedName) }),
+                modifier = Modifier.fillMaxWidth().testTag("create-file-name"),
             )
         }
     }

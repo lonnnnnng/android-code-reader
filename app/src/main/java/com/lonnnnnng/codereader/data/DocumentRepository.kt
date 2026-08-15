@@ -44,6 +44,15 @@ import java.io.OutputStream
 import java.io.PushbackInputStream
 import java.util.concurrent.ConcurrentHashMap
 
+internal fun normalizeNewFileName(value: String): String {
+    val name = value.trim()
+    require(name.isNotBlank()) { "请输入文件名" }
+    require(name != "." && name != "..") { "文件名不能是 . 或 .." }
+    require(name.length <= 255) { "文件名不能超过 255 个字符" }
+    require(name.none { it == '/' || it == '\\' || it.isISOControl() }) { "文件名不能包含路径分隔符或控制字符" }
+    return name
+}
+
 /** 项目搜索只返回手机端可流畅浏览的前 200 条，UI 会明确提示该显示上限。 @author long */
 internal const val PROJECT_SEARCH_RESULT_LIMIT = 200
 
@@ -188,6 +197,43 @@ class DocumentRepository(
             is EntryLocation.Local -> saveLocalAtomically(location.file, bytes, document.name)
         }
         bytes.size.toLong()
+    }
+
+    suspend fun canCreateFile(root: EntryLocation): Boolean = withContext(Dispatchers.IO) {
+        when (root) {
+            is EntryLocation.Local -> root.file.isDirectory && root.file.canWrite()
+            is EntryLocation.Saf -> DocumentFile.fromTreeUri(context, root.uri)?.let {
+                it.isDirectory && it.canWrite()
+            } == true
+        }
+    }
+
+    suspend fun createTextFile(root: EntryLocation, name: String): OpenDocument = withContext(Dispatchers.IO) {
+        val normalizedName = normalizeNewFileName(name)
+        when (root) {
+            is EntryLocation.Local -> {
+                val directory = root.file.canonicalFile
+                require(directory.isDirectory && directory.canWrite()) { "当前项目目录不可写" }
+                val target = File(directory, normalizedName).canonicalFile
+                require(target.parentFile == directory) { "文件名不能跳出项目目录" }
+                require(!target.exists()) { "文件已存在：$normalizedName" }
+                check(target.createNewFile()) { "无法创建文件：$normalizedName" }
+                runCatching { openLocal(target) }.getOrElse { error ->
+                    target.delete()
+                    throw error
+                }
+            }
+            is EntryLocation.Saf -> {
+                val directory = DocumentFile.fromTreeUri(context, root.uri)
+                require(directory?.isDirectory == true && directory.canWrite()) { "当前项目目录不可写" }
+                val created = directory.createFile("text/plain", normalizedName)
+                    ?: error("无法创建文件：$normalizedName")
+                runCatching { openUri(created.uri, normalizedName) }.getOrElse { error ->
+                    runCatching { DocumentsContract.deleteDocument(resolver, created.uri) }
+                    throw error
+                }
+            }
+        }
     }
 
     /**

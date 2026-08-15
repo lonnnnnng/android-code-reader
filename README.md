@@ -69,6 +69,7 @@
 - 文件内搜索、项目全局搜索、文件名/路径筛选、命中高亮和精确行列跳转。
 - 多文件标签页；每个标签页独立保留草稿、编辑状态、Markdown 模式和阅读位置，未保存草稿可在进程重建后恢复。
 - 文件书签、行书签、跳转到行、自动换行和完整路径复制。
+- 在可写项目根目录新增空文本文件；Local、应用内导入的 ZIP、已克隆 Git 工作区和可写 SAF 目录都按底层写权限决定是否显示入口，创建后立即打开并进入编辑状态。
 - 大文件按设备内存预算进入分段只读模式，搜索可以扫描到尚未加载的后半段，并可按原始字节导出完整副本。
 
 ### Markdown 不只是纯文本
@@ -101,12 +102,12 @@ Markdown 源码与预览一键切换，预览内核完全使用 APK 内置资源
 
 从 [Releases](https://github.com/lonnnnnng/android-code-reader/releases) 下载正式 APK。当前正式版本：
 
-**[灵阅 v0.1.20](https://github.com/lonnnnnng/android-code-reader/releases/tag/v0.1.20)**
+**[灵阅 v0.1.21](https://github.com/lonnnnnng/android-code-reader/releases/tag/v0.1.21)**
 
 安装包：
 
-- [AndroidCodeReader-v0.1.20.apk](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.20/AndroidCodeReader-v0.1.20.apk)
-- [SHA256SUMS](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.20/SHA256SUMS)
+- [AndroidCodeReader-v0.1.21.apk](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.21/AndroidCodeReader-v0.1.21.apk)
+- [SHA256SUMS](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.21/SHA256SUMS)
 
 ### 三步开始阅读
 
@@ -133,7 +134,7 @@ Debug APK 输出在 `app/build/outputs/apk/debug/app-debug.apk`，Debug 包使�
 | 搜索定位 | 文件内搜索、项目全局搜索、大小写/整词/正则、目录和文件类型范围、命中上下文 |
 | 持续阅读 | 多标签页、阅读位置恢复、文件书签、行书签、跳转到行 |
 | 源码阅读 | Sora Editor、行号、TextMate 语法高亮、自动换行、编码切换 |
-| 轻量编辑 | 撤销/重做、查找替换、自动缩进、括号补全、Tab/空格缩进、选中/删除行、复制/剪切/粘贴、缩进/反缩进、多行粘贴优化、跨进程草稿恢复、安全保存，以及不可写来源/大文件完整副本导出 |
+| 轻量编辑 | 新增文件、撤销/重做、查找替换、自动缩进、括号补全、Tab/空格缩进、选中/删除行、复制/剪切/粘贴、缩进/反缩进、多行粘贴优化、跨进程草稿恢复、安全保存，以及不可写来源/大文件完整副本导出 |
 | Markdown | 源码/预览、语义块位置同步、Front Matter 折叠、代码高亮、KaTeX、Mermaid、本地图片与附件、图片放大、表格、任务列表、脚注、固定可折叠目录、代码复制、内联图片/字体的单文件 HTML、PDF 导出、渲染结果分享、渲染文本复制 |
 | 项目导入 | ZIP 安全解压、路径穿越拦截、公开 HTTPS Git 浅克隆、更新预览与精确快进 |
 | 显示与编辑设置 | 11–24 sp 字号、阅读背景、整体配色、明暗模式、Darcula/高对比亮色代码主题，以及输入与缩进偏好 |
@@ -143,6 +144,7 @@ Debug APK 输出在 `app/build/outputs/apk/debug/app-debug.apk`，Debug 包使�
 
 - Git 当前支持公开 HTTPS、浅克隆、更新前提交/文件范围预览、工作区与未保存草稿保护，以及精确安全快进；暂不支持 SSH、Token、私有仓库、分支/Tag/Commit 浏览、完整行级 Diff 和冲突查看/处理。
 - 超过设备可承受范围的大文件自动进入只读分段模式，不能直接编辑保存，但可以重新读取原始字节并导出完整副本。
+- 新增文件只针对项目根目录；只读 SAF 或其他不可写来源会隐藏该入口。应用内导入 ZIP 和已克隆 Git 工作区如果底层目录可写则可以创建；Git 更新仍会把新文件作为未跟踪修改纳入安全更新保护。当前不提供新建目录和指定子目录创建。
 - Markdown 预览默认禁用原始 HTML 和远程图片联网加载；本地图片与附件只解析当前项目索引内的相对路径，图片、KaTeX 和 Mermaid 单项失败时保留原始内容并提供源码回退。
 - 灵阅不是编译器、调试器或完整移动 IDE。
 

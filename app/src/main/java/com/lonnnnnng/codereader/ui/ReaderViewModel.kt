@@ -27,6 +27,7 @@ import com.lonnnnnng.codereader.data.ReadingStatePolicy
 import com.lonnnnnng.codereader.data.RecentProjectCodec
 import com.lonnnnnng.codereader.data.RecentProjectPolicy
 import com.lonnnnnng.codereader.data.RecentProjectRecord
+import com.lonnnnnng.codereader.data.normalizeNewFileName
 import com.lonnnnnng.codereader.domain.IndexedProjectEntry
 import com.lonnnnnng.codereader.domain.MarkdownHeading
 import com.lonnnnnng.codereader.domain.MarkdownOutlineParser
@@ -209,6 +210,7 @@ sealed interface ReaderRetryAction {
     data class OpenBundledProject(val assetPath: String, val targetName: String) : ReaderRetryAction
     data class RefreshProject(val root: EntryLocation, val title: String) : ReaderRetryAction
     data class OpenGitConflictFile(val path: String) : ReaderRetryAction
+    data class CreateFile(val root: EntryLocation, val name: String) : ReaderRetryAction
     data class GotoLine(val line: Int) : ReaderRetryAction
     data object Save : ReaderRetryAction
     data object LoadMore : ReaderRetryAction
@@ -265,6 +267,7 @@ data class ReaderUiState(
     val gitRepositoryRoot: String? = null,
     val gitUpdatePreview: GitUpdatePreview? = null,
     val projectRoot: EntryLocation? = null,
+    val projectCanCreateFile: Boolean = false,
     val projectEntries: List<ProjectTreeEntry> = emptyList(),
     val expandedDirectoryIds: Set<String> = emptySet(),
     val projectSearchQuery: String = "",
@@ -447,6 +450,45 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun importZip(uri: Uri) = launchBusy(ReaderRetryAction.ImportZip(uri)) {
         openLocalRoot(importer.importZip(uri), rememberRecent = true)
+    }
+
+    fun createFile(name: String) {
+        val root = _state.value.projectRoot
+        if (root == null) {
+            _state.update { it.copy(message = "请先打开一个项目") }
+            return
+        }
+        val normalizedName = runCatching { normalizeNewFileName(name) }.getOrElse { error ->
+            _state.update { it.copy(message = error.message ?: "文件名无效") }
+            return
+        }
+        createFile(root, normalizedName)
+    }
+
+    private fun createFile(root: EntryLocation, name: String) = launchBusy(
+        ReaderRetryAction.CreateFile(root, name),
+    ) {
+        val document = repository.createTextFile(root, name)
+        updateOperationDetail("正在刷新项目目录")
+        val index = buildProjectIndex(root, forceRefresh = true)
+        val canCreate = repository.canCreateFile(root)
+        _state.update { current ->
+            current.copy(
+                projectEntries = index,
+                projectCanCreateFile = canCreate,
+                expandedDirectoryIds = emptySet(),
+                projectSearchQuery = "",
+                projectSearchResults = emptyList(),
+                projectSearchInProgress = false,
+                projectSearchError = null,
+                projectSearchTotalMatches = 0,
+                projectSearchMatchedFiles = 0,
+                projectSearchResultsTruncated = false,
+                projectSearchActiveResultIndex = -1,
+            )
+        }
+        openDocumentWithStoredPosition(document)
+        "已创建 ${document.name}"
     }
 
     fun cloneGit(url: String) = launchGitOperation("正在克隆 Git 仓库") { monitor ->
@@ -1977,6 +2019,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             is ReaderRetryAction.OpenBundledProject -> openBundledProject(action.assetPath, action.targetName)
             is ReaderRetryAction.RefreshProject -> refreshProject(action.root, action.title)
             is ReaderRetryAction.OpenGitConflictFile -> openGitConflictFile(action.path)
+            is ReaderRetryAction.CreateFile -> createFile(action.root, action.name)
             is ReaderRetryAction.GotoLine -> gotoLine(action.line)
             ReaderRetryAction.Save -> save()
             ReaderRetryAction.LoadMore -> loadMore()
@@ -2109,6 +2152,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         recent: RecentProjectRecord?,
     ) {
         val index = buildProjectIndex(root)
+        val canCreateFile = repository.canCreateFile(root)
         val gitRoot = (root as? EntryLocation.Local)
             ?.file
             ?.takeIf(gitRepositoryManager::isRepository)
@@ -2124,6 +2168,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 gitRepositoryRoot = gitRoot,
                 gitUpdatePreview = null,
                 projectRoot = root,
+                projectCanCreateFile = canCreateFile,
                 projectEntries = index,
                 expandedDirectoryIds = emptySet(),
                 projectSearchQuery = "",

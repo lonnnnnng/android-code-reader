@@ -221,6 +221,7 @@ class DialogLayoutInstrumentedTest {
     @Test
     fun clonedProjectHeaderExposesUpdateAction() {
         var updateRequested = false
+        var createRequested = false
         composeRule.setContent {
             MaterialTheme(
                 colorScheme = appColorScheme(ReaderTheme.HIGH_CONTRAST_LIGHT, AppColorPalette.EMERALD),
@@ -232,19 +233,44 @@ class DialogLayoutInstrumentedTest {
                         screen = AppScreen.BROWSER,
                         browserTitle = "Hello-World",
                         gitRepositoryRoot = "/data/user/0/app/files/projects/Hello-World",
+                        projectCanCreateFile = true,
                     ),
                     onBack = {},
                     onEntry = {},
                     onSearch = {},
                     onSearchResult = {},
-                    onUpdateGit = { updateRequested = true },
-                    onToggleTheme = {},
+                        onUpdateGit = { updateRequested = true },
+                        onCreateFile = { createRequested = true },
+                        onToggleTheme = {},
+                        canCreateFile = true,
                 )
             }
         }
 
         composeRule.onNodeWithContentDescription("获取最新代码").assertIsDisplayed().performClick()
         composeRule.runOnIdle { assertTrue("Git 项目标题栏必须触发更新动作", updateRequested) }
+        composeRule.onNodeWithContentDescription("新增文件").assertIsDisplayed().performClick()
+        composeRule.runOnIdle { assertTrue("项目浏览器必须触发新增文件动作", createRequested) }
+    }
+
+    @Test
+    fun createFileDialogValidatesNameAndReturnsNormalizedFileName() {
+        var createdName: String? = null
+        composeRule.setContent {
+            MaterialTheme(
+                colorScheme = appColorScheme(ReaderTheme.HIGH_CONTRAST_LIGHT, AppColorPalette.EMERALD),
+                typography = ReaderTypography,
+                shapes = ReaderShapes,
+            ) {
+                CreateFileDialog(onDismiss = {}, onCreate = { createdName = it })
+            }
+        }
+
+        composeRule.onNodeWithTag("create-file-dialog").assertIsDisplayed()
+        composeRule.onNodeWithTag("create-file-confirm").assertIsNotEnabled()
+        composeRule.onNodeWithTag("create-file-name").performTextInput("  README.md  ")
+        composeRule.onNodeWithTag("create-file-confirm").assertIsEnabled().performClick()
+        composeRule.runOnIdle { assertTrue("README.md" == createdName) }
     }
 
     @Test
