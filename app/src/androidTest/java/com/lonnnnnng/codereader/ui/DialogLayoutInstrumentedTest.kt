@@ -40,6 +40,7 @@ import com.lonnnnnng.codereader.domain.ProjectSearchOptions
 import com.lonnnnnng.codereader.domain.TextSearchOptions
 import com.lonnnnnng.codereader.update.AppRelease
 import com.lonnnnnng.codereader.update.ReleaseApkAsset
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -330,8 +331,8 @@ class DialogLayoutInstrumentedTest {
         composeRule.onNodeWithTag("create-file-name").performTextInput("worker")
         composeRule.onNodeWithTag("create-file-confirm").assertIsEnabled().performClick()
         composeRule.runOnIdle {
-            assertTrue("worker.py" == createdName)
-            assertTrue(FileType.PYTHON == createdType)
+            assertEquals("worker.py", createdName)
+            assertEquals(FileType.PYTHON, createdType)
         }
     }
 

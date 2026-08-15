@@ -69,7 +69,7 @@
 - 文件内搜索、项目全局搜索、文件名/路径筛选、命中高亮和精确行列跳转。
 - 多文件标签页；每个标签页独立保留草稿、编辑状态、Markdown 模式和阅读位置，未保存草稿可在进程重建后恢复。
 - 文件书签、行书签、跳转到行、自动换行和完整路径复制。
-- 在可写项目根目录新增文件；创建前可选择 Markdown、Java、Kotlin、Python、Go、Rust、JavaScript、TypeScript、HTML、CSS、Vue、JSON、YAML、TOML、SQL、Shell、C/C++、C#、PHP、XML 等类型，自动生成对应扩展名和可直接编辑的最小代码骨架。Local、应用内导入的 ZIP、已克隆 Git 工作区和可写 SAF 目录都按底层写权限决定是否显示入口，创建后立即打开并进入编辑状态。
+- 在可写项目根目录新增文件；创建前可从 77 个常见源码、脚本、配置、基础设施和 Markdown 模板中选择，自动生成对应文件名、扩展名和可直接编辑的最小代码骨架。Local、应用内导入的 ZIP、已克隆 Git 工作区和可写 SAF 目录都按底层写权限决定是否显示入口，创建后立即打开并进入编辑状态。
 - 大文件按设备内存预算进入分段只读模式，搜索可以扫描到尚未加载的后半段，并可按原始字节导出完整副本。
 
 ### Markdown 不只是纯文本
@@ -102,12 +102,12 @@ Markdown 源码与预览一键切换，预览内核完全使用 APK 内置资源
 
 从 [Releases](https://github.com/lonnnnnng/android-code-reader/releases) 下载正式 APK。当前正式版本：
 
-**[灵阅 v0.1.24](https://github.com/lonnnnnng/android-code-reader/releases/tag/v0.1.24)**
+**[灵阅 v0.1.25](https://github.com/lonnnnnng/android-code-reader/releases/tag/v0.1.25)**
 
 安装包：
 
-- [AndroidCodeReader-v0.1.24.apk](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.24/AndroidCodeReader-v0.1.24.apk)
-- [SHA256SUMS](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.24/SHA256SUMS)
+- [AndroidCodeReader-v0.1.25.apk](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.25/AndroidCodeReader-v0.1.25.apk)
+- [SHA256SUMS](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.25/SHA256SUMS)
 
 ### 三步开始阅读
 

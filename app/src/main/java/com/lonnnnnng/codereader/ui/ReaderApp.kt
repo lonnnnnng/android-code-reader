@@ -38,10 +38,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
@@ -4569,34 +4571,50 @@ internal fun CreateFileDialog(
                     onDismissRequest = { typeMenuExpanded = false },
                     modifier = Modifier.readerMenuSurface().heightIn(max = 380.dp),
                 ) {
-                    NewFileTemplate.options.forEach { option ->
-                        DropdownMenuItem(
-                            text = {
-                                Column {
-                                    Text(
-                                        option.displayName,
-                                        fontWeight = if (option == selectedTemplate) FontWeight.SemiBold else FontWeight.Normal,
-                                    )
-                                    Text(
-                                        option.defaultName,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            },
-                            onClick = {
-                                typeMenuExpanded = false
-                                selectedTemplate = option
-                                val current = name.text.trim()
-                                val nextName = if (!nameTouched || current.isBlank()) {
-                                    option.defaultName
-                                } else {
-                                    option.ensureExtension(current.substringBeforeLast('.', current))
-                                }
-                                name = TextFieldValue(nextName)
-                            },
-                            modifier = Modifier.heightIn(min = ReaderDimens.compactRowMinHeight),
-                        )
+                    Column(
+                        modifier = Modifier
+                            .heightIn(max = 380.dp)
+                            .verticalScroll(rememberScrollState()),
+                    ) {
+                        var previousCategory: String? = null
+                        NewFileTemplate.options.forEach { option ->
+                            if (previousCategory != option.category) {
+                                previousCategory = option.category
+                                Text(
+                                    option.category,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text(
+                                            option.displayName,
+                                            fontWeight = if (option == selectedTemplate) FontWeight.SemiBold else FontWeight.Normal,
+                                        )
+                                        Text(
+                                            option.defaultName,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    typeMenuExpanded = false
+                                    selectedTemplate = option
+                                    val current = name.text.trim()
+                                    val nextName = if (!nameTouched || current.isBlank()) {
+                                        option.defaultName
+                                    } else {
+                                        option.ensureExtension(current.substringBeforeLast('.', current))
+                                    }
+                                    name = TextFieldValue(nextName)
+                                },
+                                modifier = Modifier.heightIn(min = ReaderDimens.compactRowMinHeight),
+                            )
+                        }
                     }
                 }
             }
