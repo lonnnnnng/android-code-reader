@@ -336,6 +336,42 @@ class DialogLayoutInstrumentedTest {
     }
 
     @Test
+    fun createFileDialogReplacesDefaultNameOnFirstInput() {
+        var createdName: String? = null
+        composeRule.setContent {
+            MaterialTheme(
+                colorScheme = appColorScheme(ReaderTheme.HIGH_CONTRAST_LIGHT, AppColorPalette.EMERALD),
+                typography = ReaderTypography,
+                shapes = ReaderShapes,
+            ) {
+                CreateFileDialog(onDismiss = {}, onCreate = { name, _ -> createdName = name })
+            }
+        }
+
+        composeRule.onNodeWithTag("create-file-name").performClick()
+        composeRule.onNodeWithTag("create-file-name").performTextInput("notes")
+        composeRule.onNodeWithTag("create-file-confirm").assertIsEnabled().performClick()
+        composeRule.runOnIdle { assertTrue("notes.md" == createdName) }
+    }
+
+    @Test
+    fun createFileDialogExplainsEmptyFileName() {
+        composeRule.setContent {
+            MaterialTheme(
+                colorScheme = appColorScheme(ReaderTheme.HIGH_CONTRAST_LIGHT, AppColorPalette.EMERALD),
+                typography = ReaderTypography,
+                shapes = ReaderShapes,
+            ) {
+                CreateFileDialog(onDismiss = {}, onCreate = { _, _ -> })
+            }
+        }
+
+        composeRule.onNodeWithTag("create-file-name").performTextClearance()
+        composeRule.onNodeWithText("请输入文件名").assertIsDisplayed()
+        composeRule.onNodeWithTag("create-file-confirm").assertIsNotEnabled()
+    }
+
+    @Test
     fun projectSearchOptionsUseProductSheet() {
         var appliedOptions: ProjectSearchOptions? = null
         val source = SourceEntry(

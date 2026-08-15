@@ -102,12 +102,12 @@ Markdown 源码与预览一键切换，预览内核完全使用 APK 内置资源
 
 从 [Releases](https://github.com/lonnnnnng/android-code-reader/releases) 下载正式 APK。当前正式版本：
 
-**[灵阅 v0.1.23](https://github.com/lonnnnnng/android-code-reader/releases/tag/v0.1.23)**
+**[灵阅 v0.1.24](https://github.com/lonnnnnng/android-code-reader/releases/tag/v0.1.24)**
 
 安装包：
 
-- [AndroidCodeReader-v0.1.23.apk](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.23/AndroidCodeReader-v0.1.23.apk)
-- [SHA256SUMS](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.23/SHA256SUMS)
+- [AndroidCodeReader-v0.1.24.apk](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.24/AndroidCodeReader-v0.1.24.apk)
+- [SHA256SUMS](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.24/SHA256SUMS)
 
 ### 三步开始阅读
 
@@ -225,7 +225,7 @@ flowchart LR
 
 当前质量基线：
 
-- `Pixel_9` Android 模拟器当前全量 instrumentation：`89/89` 通过；覆盖新增文件类型选择、扩展名补齐和模板正文写入。
+- `Pixel_9` Android 模拟器当前全量 instrumentation：`91/91` 通过；覆盖新增文件类型选择、扩展名补齐、模板正文写入和新增文件弹窗交互反馈。
 - 语法覆盖：`78/78` 通过。
 - 覆盖 ZIP 路径安全、Git 克隆/更新预览/修改保护/精确快进、项目完整索引、大文件分段搜索、Markdown DOM 与本地资源渲染、编辑器输入偏好、常用行与剪贴板操作、跨进程草稿恢复、安全保存、完整原始字节副本导出、导出取消与失败清理、设置持久化和在线更新校验。
 - 当前项目回归严格使用 Pixel_9 模拟器；Redmi Note 8 Pro 真机不属于当前验证范围。
