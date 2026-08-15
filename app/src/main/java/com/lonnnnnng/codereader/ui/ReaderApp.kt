@@ -58,6 +58,7 @@ import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.automirrored.outlined.ManageSearch
 import androidx.compose.material.icons.automirrored.outlined.NavigateBefore
 import androidx.compose.material.icons.automirrored.outlined.NavigateNext
+import androidx.compose.material.icons.automirrored.outlined.NoteAdd
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.automirrored.outlined.Redo
 import androidx.compose.material.icons.automirrored.outlined.Undo
@@ -203,6 +204,7 @@ fun ReaderApp(viewModel: ReaderViewModel) {
     val colors = appColorScheme(state.theme, state.settings.appPalette)
     var showGitDialog by remember { mutableStateOf(false) }
     var showCreateFileDialog by remember { mutableStateOf(false) }
+    var pendingCreateFileAfterFolder by rememberSaveable { mutableStateOf(false) }
     var showExitConfirmation by rememberSaveable { mutableStateOf(false) }
     var pendingHtmlExportPath by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingDocumentExportId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -248,7 +250,12 @@ fun ReaderApp(viewModel: ReaderViewModel) {
         }
     }
     val openFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        uri?.let { viewModel.openSafTree(it) }
+        if (uri == null) {
+            pendingCreateFileAfterFolder = false
+        } else {
+            persistUri(context, uri)
+            viewModel.openSafTree(uri)
+        }
     }
     val openZip = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { viewModel.importZip(it) }
@@ -306,6 +313,17 @@ fun ReaderApp(viewModel: ReaderViewModel) {
         }
     }
 
+    LaunchedEffect(state.screen, state.projectCanCreateFile, pendingCreateFileAfterFolder) {
+        if (pendingCreateFileAfterFolder && state.screen == AppScreen.BROWSER) {
+            pendingCreateFileAfterFolder = false
+            if (state.projectCanCreateFile) {
+                showCreateFileDialog = true
+            } else {
+                viewModel.reportMessage("当前目录不可写，请选择可写项目目录")
+            }
+        }
+    }
+
     SideEffect {
         if (!view.isInEditMode) {
             val window = (view.context as Activity).window
@@ -338,6 +356,14 @@ fun ReaderApp(viewModel: ReaderViewModel) {
                             onOpenFolder = { openFolder.launch(null) },
                             onOpenZip = { openZip.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
                             onCloneGit = { showGitDialog = true },
+                            onCreateFile = {
+                                if (state.projectRoot != null && state.projectCanCreateFile) {
+                                    showCreateFileDialog = true
+                                } else {
+                                    pendingCreateFileAfterFolder = true
+                                    openFolder.launch(null)
+                                }
+                            },
                             onOpenBundledProject = viewModel::openBundledProject,
                             onOpenRecentProjects = viewModel::openRecentProjects,
                             onOpenSettings = viewModel::openSettings,
@@ -383,9 +409,7 @@ fun ReaderApp(viewModel: ReaderViewModel) {
                             onNextSearchResult = { viewModel.openAdjacentProjectSearchResult(true) },
                             onUpdateGit = viewModel::updateGitRepository,
                             onRefresh = viewModel::refreshProject,
-                            onCreateFile = { showCreateFileDialog = true },
                             onToggleTheme = viewModel::toggleTheme,
-                            canCreateFile = state.projectCanCreateFile,
                         )
                             AppScreen.READER -> ReaderScreen(
                             state = state,
@@ -581,12 +605,13 @@ fun ReaderApp(viewModel: ReaderViewModel) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HomeScreen(
+internal fun HomeScreen(
     state: ReaderUiState,
     onOpenFile: () -> Unit,
     onOpenFolder: () -> Unit,
     onOpenZip: () -> Unit,
     onCloneGit: () -> Unit,
+    onCreateFile: () -> Unit,
     onOpenBundledProject: (String, String) -> Unit,
     onOpenRecentProjects: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -623,6 +648,14 @@ private fun HomeScreen(
                         onOpenFolder = onOpenFolder,
                         onOpenZip = onOpenZip,
                         onCloneGit = onCloneGit,
+                    )
+                    HomeCreateFileCard(
+                        summary = if (state.projectRoot != null && state.projectCanCreateFile) {
+                            "在当前项目根目录创建并打开"
+                        } else {
+                            "选择项目目录后立即创建"
+                        },
+                        onClick = onCreateFile,
                     )
                     HomeFeatureRow(
                         title = "最近打开",
@@ -663,6 +696,47 @@ private fun HomeScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+/** 首页一级操作直接承载“新增文件”，让偶发编辑入口不必先进入项目树寻找。 @author long */
+@Composable
+private fun HomeCreateFileCard(
+    summary: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().testTag("create-file-entry"),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        shape = MaterialTheme.shapes.large,
+        tonalElevation = 2.dp,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().heightIn(min = 76.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            ReaderIconBadge(Icons.AutoMirrored.Outlined.NoteAdd, ReaderBadgeTone.TERTIARY)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "新增文件",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+                Text(
+                    summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f),
+                )
+            }
+            Icon(
+                Icons.Outlined.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
         }
     }
 }
@@ -1931,8 +2005,6 @@ internal fun BrowserScreen(
     onUpdateGit: () -> Unit,
     onToggleTheme: () -> Unit,
     onRefresh: () -> Unit = {},
-    onCreateFile: () -> Unit = {},
-    canCreateFile: Boolean = false,
 ) {
     val browserTitle = state.browserTitle ?: return
     var searchVisible by rememberSaveable(browserTitle) { mutableStateOf(state.projectSearchQuery.isNotBlank()) }
@@ -1982,13 +2054,6 @@ internal fun BrowserScreen(
                 )
                 // 搜索模式只保留关闭入口，避免窄屏标题栏同时堆放四组操作。 @author long
                 if (!searchVisible) {
-                    if (canCreateFile) {
-                        HeaderIconButton(
-                            icon = Icons.Outlined.Add,
-                            contentDescription = "新增文件",
-                            onClick = onCreateFile,
-                        )
-                    }
                     HeaderIconButton(
                         icon = Icons.Outlined.Refresh,
                         contentDescription = "刷新项目目录",

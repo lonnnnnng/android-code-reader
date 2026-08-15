@@ -102,12 +102,12 @@ Markdown 源码与预览一键切换，预览内核完全使用 APK 内置资源
 
 从 [Releases](https://github.com/lonnnnnng/android-code-reader/releases) 下载正式 APK。当前正式版本：
 
-**[灵阅 v0.1.21](https://github.com/lonnnnnng/android-code-reader/releases/tag/v0.1.21)**
+**[灵阅 v0.1.22](https://github.com/lonnnnnng/android-code-reader/releases/tag/v0.1.22)**
 
 安装包：
 
-- [AndroidCodeReader-v0.1.21.apk](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.21/AndroidCodeReader-v0.1.21.apk)
-- [SHA256SUMS](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.21/SHA256SUMS)
+- [AndroidCodeReader-v0.1.22.apk](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.22/AndroidCodeReader-v0.1.22.apk)
+- [SHA256SUMS](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.22/SHA256SUMS)
 
 ### 三步开始阅读
 
@@ -145,6 +145,7 @@ Debug APK 输出在 `app/build/outputs/apk/debug/app-debug.apk`，Debug 包使�
 - Git 当前支持公开 HTTPS、浅克隆、更新前提交/文件范围预览、工作区与未保存草稿保护，以及精确安全快进；暂不支持 SSH、Token、私有仓库、分支/Tag/Commit 浏览、完整行级 Diff 和冲突查看/处理。
 - 超过设备可承受范围的大文件自动进入只读分段模式，不能直接编辑保存，但可以重新读取原始字节并导出完整副本。
 - 新增文件只针对项目根目录；只读 SAF 或其他不可写来源会隐藏该入口。应用内导入 ZIP 和已克隆 Git 工作区如果底层目录可写则可以创建；Git 更新仍会把新文件作为未跟踪修改纳入安全更新保护。当前不提供新建目录和指定子目录创建。
+- 新增文件入口位于首页一级操作区，以独立主操作卡片呈现；如果当前没有可写项目，会先引导选择项目目录，再打开文件名输入框。
 - Markdown 预览默认禁用原始 HTML 和远程图片联网加载；本地图片与附件只解析当前项目索引内的相对路径，图片、KaTeX 和 Mermaid 单项失败时保留原始内容并提供源码回退。
 - 灵阅不是编译器、调试器或完整移动 IDE。
 

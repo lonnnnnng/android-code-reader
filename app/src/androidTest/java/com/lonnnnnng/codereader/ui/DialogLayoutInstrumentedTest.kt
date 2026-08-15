@@ -8,10 +8,12 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertWidthIsEqualTo
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -221,7 +223,6 @@ class DialogLayoutInstrumentedTest {
     @Test
     fun clonedProjectHeaderExposesUpdateAction() {
         var updateRequested = false
-        var createRequested = false
         composeRule.setContent {
             MaterialTheme(
                 colorScheme = appColorScheme(ReaderTheme.HIGH_CONTRAST_LIGHT, AppColorPalette.EMERALD),
@@ -233,24 +234,48 @@ class DialogLayoutInstrumentedTest {
                         screen = AppScreen.BROWSER,
                         browserTitle = "Hello-World",
                         gitRepositoryRoot = "/data/user/0/app/files/projects/Hello-World",
-                        projectCanCreateFile = true,
                     ),
                     onBack = {},
                     onEntry = {},
                     onSearch = {},
                     onSearchResult = {},
-                        onUpdateGit = { updateRequested = true },
-                        onCreateFile = { createRequested = true },
-                        onToggleTheme = {},
-                        canCreateFile = true,
+                    onUpdateGit = { updateRequested = true },
+                    onToggleTheme = {},
                 )
             }
         }
 
         composeRule.onNodeWithContentDescription("获取最新代码").assertIsDisplayed().performClick()
         composeRule.runOnIdle { assertTrue("Git 项目标题栏必须触发更新动作", updateRequested) }
-        composeRule.onNodeWithContentDescription("新增文件").assertIsDisplayed().performClick()
-        composeRule.runOnIdle { assertTrue("项目浏览器必须触发新增文件动作", createRequested) }
+        composeRule.onAllNodesWithContentDescription("新增文件").assertCountEquals(0)
+    }
+
+    @Test
+    fun homeExposesStandaloneCreateFileEntry() {
+        var createRequested = false
+        composeRule.setContent {
+            MaterialTheme(
+                colorScheme = appColorScheme(ReaderTheme.HIGH_CONTRAST_LIGHT, AppColorPalette.EMERALD),
+                typography = ReaderTypography,
+                shapes = ReaderShapes,
+            ) {
+                HomeScreen(
+                    state = ReaderUiState(),
+                    onOpenFile = {},
+                    onOpenFolder = {},
+                    onOpenZip = {},
+                    onCloneGit = {},
+                    onCreateFile = { createRequested = true },
+                    onOpenBundledProject = { _, _ -> },
+                    onOpenRecentProjects = {},
+                    onOpenSettings = {},
+                    onToggleTheme = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("create-file-entry").assertIsDisplayed().performClick()
+        composeRule.runOnIdle { assertTrue("首页一级入口必须触发新增文件动作", createRequested) }
     }
 
     @Test
