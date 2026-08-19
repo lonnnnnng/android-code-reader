@@ -102,12 +102,12 @@ Markdown 源码与预览一键切换，预览内核完全使用 APK 内置资源
 
 从 [Releases](https://github.com/lonnnnnng/android-code-reader/releases) 下载正式 APK。当前正式版本：
 
-**[灵阅 v0.1.25](https://github.com/lonnnnnng/android-code-reader/releases/tag/v0.1.25)**
+**[灵阅 v0.1.26](https://github.com/lonnnnnng/android-code-reader/releases/tag/v0.1.26)**
 
 安装包：
 
-- [AndroidCodeReader-v0.1.25.apk](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.25/AndroidCodeReader-v0.1.25.apk)
-- [SHA256SUMS](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.25/SHA256SUMS)
+- [AndroidCodeReader-v0.1.26.apk](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.26/AndroidCodeReader-v0.1.26.apk)
+- [SHA256SUMS](https://github.com/lonnnnnng/android-code-reader/releases/download/v0.1.26/SHA256SUMS)
 
 ### 三步开始阅读
 
@@ -198,7 +198,7 @@ flowchart LR
 | 层次 | 技术与职责 |
 | --- | --- |
 | 产品界面 | Kotlin、Jetpack Compose、Material 3；负责导航、设置、弹层、项目树和阅读状态 |
-| 源码编辑器 | [Sora Editor](https://github.com/Rosemoe/sora-editor) `0.24.6`、TextMate grammar、Oniguruma；负责行号、语法高亮、编辑与跳转 |
+| 源码编辑器 | [Sora Editor](https://github.com/Rosemoe/sora-editor) `0.24.6`、TextMate grammar、TM4E Joni 正则引擎；负责行号、语法高亮、编辑与跳转。移动端关闭 native Oniguruma，避免复杂 YAML grammar 触发 `libonig.so` 崩溃 |
 | Markdown 预览 | WebView + APK 内置 `markdown-it`、`highlight.js`、`KaTeX`、`Mermaid`；只承担 Markdown 高级渲染 |
 | 数据源 | Android Storage Access Framework、`DocumentFile`、应用私有目录、ZIP 流式解压、[Eclipse JGit](https://www.eclipse.org/jgit/) |
 | 领域能力 | `ProjectIndex`、`TextSearch`、`MarkdownOutlineParser`、编码检测、动态内存预算和大文件分页 |

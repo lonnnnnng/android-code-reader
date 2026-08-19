@@ -4,7 +4,7 @@
 
 - Repository: https://github.com/Rosemoe/sora-editor
 - Version: `0.24.6`
-- Usage: Gradle dependencies `editor`, `language-textmate`, `oniguruma-native`
+- Usage: Gradle dependencies `editor`, `language-textmate`, `oniguruma-native`; TextMate runtime uses its transitive Joni implementation on Android
 - License: LGPL-2.1-or-later
 
 ## Markdown-it

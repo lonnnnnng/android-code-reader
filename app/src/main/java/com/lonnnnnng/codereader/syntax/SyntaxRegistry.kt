@@ -13,6 +13,7 @@ import io.github.rosemoe.sora.langs.textmate.registry.GrammarRegistry
 import io.github.rosemoe.sora.langs.textmate.registry.ThemeRegistry
 import io.github.rosemoe.sora.langs.textmate.registry.model.ThemeModel
 import io.github.rosemoe.sora.langs.textmate.registry.provider.AssetsFileResolver
+import org.eclipse.tm4e.core.internal.oniguruma.Oniguruma
 import org.eclipse.tm4e.core.registry.IThemeSource
 
 /**
@@ -28,6 +29,10 @@ object SyntaxRegistry {
     fun initialize(context: Context) {
         if (initialized) return
 
+        // YAML 等复杂 grammar 会触发 native Oniguruma 的批量正则扫描；移动端改用
+        // 同一套 TM4E 的 Joni 实现，避免 libonig 在异常长行或切换文件时发生 native 崩溃。
+        // @author long
+        Oniguruma().setUseNativeOniguruma(false)
         FileProviderRegistry.getInstance().addFileProvider(AssetsFileResolver(context.applicationContext.assets))
         val themeRegistry = ThemeRegistry.getInstance()
         loadTheme(themeRegistry, ReaderTheme.HIGH_CONTRAST_LIGHT.textMateName, dark = false)

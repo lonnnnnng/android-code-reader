@@ -13,7 +13,6 @@ import io.github.rosemoe.sora.event.ContentChangeEvent
 import io.github.rosemoe.sora.event.ScrollEvent
 import io.github.rosemoe.sora.event.SelectionChangeEvent
 import io.github.rosemoe.sora.widget.CodeEditor
-import io.github.rosemoe.sora.widget.EditorSearcher
 import io.github.rosemoe.sora.widget.schemes.EditorColorScheme
 
 /** Compose 只消费撤销/重做能力，不持有 Sora 的可变文本对象。 @author long */
@@ -38,8 +37,6 @@ private class EditorDocumentBinding {
     var suppressTextCallback: Boolean = false
     var suppressPositionCallback: Boolean = false
     var commandId: Long? = null
-    var searchQuery: String? = null
-    var searchOptions: TextSearchOptions? = null
     val scrollOffsets = mutableMapOf<String, Int>()
     val reportedLines = mutableMapOf<String, Int>()
     val reportedCursorLines = mutableMapOf<String, Int>()
@@ -107,6 +104,7 @@ fun CodeEditorView(
                         binding.renderedText = this.text.toString()
                         latestOnTextChanged.value(binding.renderedText)
                         post {
+                            if (isReleased) return@post
                             reportHistoryState(
                                 editor = this,
                                 binding = binding,
@@ -155,11 +153,10 @@ fun CodeEditorView(
                 binding.commandId = null
                 applyEditorLanguage(editor, binding, fileType, tabWidth, indentWithTabs, force = true)
                 replaceEditorText(editor, binding, text)
-                binding.searchQuery = null
-                binding.searchOptions = null
                 binding.suppressPositionCallback = false
                 restoreScrollOffset(editor, binding.scrollOffsets[documentId])
                 editor.post {
+                    if (editor.isReleased) return@post
                     reportHistoryState(editor, binding, latestOnHistoryChanged.value)
                 }
             } else if (binding.renderedText != text && editor.text.toString() != text) {
@@ -168,10 +165,9 @@ fun CodeEditorView(
                 binding.suppressPositionCallback = true
                 replaceEditorText(editor, binding, text)
                 binding.suppressPositionCallback = false
-                binding.searchQuery = null
-                binding.searchOptions = null
                 restoreScrollOffset(editor, currentScrollY)
                 editor.post {
+                    if (editor.isReleased) return@post
                     reportHistoryState(editor, binding, latestOnHistoryChanged.value)
                 }
             }
@@ -202,6 +198,9 @@ fun CodeEditorView(
             }
         },
         onRelease = { editor ->
+            // Compose 销毁 AndroidView 前先中断后台查找，避免 native/文本对象释放竞态。
+            // @author long
+            editor.searcher.stopSearch()
             reportReadingLine(
                 binding = binding,
                 documentId = binding.documentId,
@@ -302,7 +301,10 @@ private fun replaceEditorText(editor: CodeEditor, binding: EditorDocumentBinding
 /** 文本重设会让 Android View 回到顶部，下一帧恢复原位置以保持连续阅读体验。 @author long */
 private fun restoreScrollOffset(editor: CodeEditor, scrollY: Int?) {
     val offset = scrollY ?: return
-    editor.post { editor.scrollTo(editor.scrollX, offset.coerceAtLeast(0)) }
+    editor.post {
+        if (editor.isReleased) return@post
+        editor.scrollTo(editor.scrollX, offset.coerceAtLeast(0))
+    }
 }
 
 private fun handleEditorCommand(
@@ -318,16 +320,22 @@ private fun handleEditorCommand(
         ReaderCommandType.UNDO -> {
             editor.post {
                 // Compose 正在提交 AndroidView.update 时不能同步改正文，否则 Sora 的行布局可能处于重建中。 @author long
-                if (!isCurrentEditorCommand(binding, command, documentId)) return@post
+                if (editor.isReleased || !isCurrentEditorCommand(binding, command, documentId)) return@post
                 editor.undo()
-                editor.post { reportHistoryState(editor, binding, onHistoryChanged) }
+                editor.post {
+                    if (editor.isReleased) return@post
+                    reportHistoryState(editor, binding, onHistoryChanged)
+                }
             }
         }
         ReaderCommandType.REDO -> {
             editor.post {
-                if (!isCurrentEditorCommand(binding, command, documentId)) return@post
+                if (editor.isReleased || !isCurrentEditorCommand(binding, command, documentId)) return@post
                 editor.redo()
-                editor.post { reportHistoryState(editor, binding, onHistoryChanged) }
+                editor.post {
+                    if (editor.isReleased) return@post
+                    reportHistoryState(editor, binding, onHistoryChanged)
+                }
             }
         }
         ReaderCommandType.SELECT_LINE,
@@ -351,7 +359,10 @@ private fun handleEditorCommand(
                     ReaderCommandType.INDENT -> if (editor.editable) editor.indentLines(false)
                     ReaderCommandType.UNINDENT -> if (editor.editable) editor.unindentSelection()
                 }
-                editor.post { reportHistoryState(editor, binding, onHistoryChanged) }
+                editor.post {
+                    if (editor.isReleased) return@post
+                    reportHistoryState(editor, binding, onHistoryChanged)
+                }
             }
         }
         ReaderCommandType.REPLACE_CURRENT -> {
@@ -386,8 +397,6 @@ private fun handleEditorCommand(
                     binding.renderedText = editor.text.toString()
                     onTextChanged(binding.renderedText)
                     editor.searcher.stopSearch()
-                    binding.searchQuery = null
-                    binding.searchOptions = null
                     1
                 }
                 reportReplacementResult(
@@ -479,7 +488,7 @@ private fun handleEditorCommand(
             // 新文件 setText() 后 Sora 需要到下一帧才稳定 lineCount，否则全局搜索的首次跳转会被夹到第 1 行。
             editor.postDelayed({
                 // 标签切换不会销毁同一个 View，旧命令必须核对文档和命令 id 后才能继续执行。 @author long
-                if (!isCurrentEditorCommand(binding, command, documentId)) return@postDelayed
+                if (editor.isReleased || !isCurrentEditorCommand(binding, command, documentId)) return@postDelayed
                 val line = (command.line - 1).coerceIn(0, (editor.lineCount - 1).coerceAtLeast(0))
                 editor.setSelection(line, 0, true)
                 // Sora 的光标更新和滚动是两条路径，显式确保目标行可见才能稳定承接 Markdown 预览位置。 @author long
@@ -487,9 +496,8 @@ private fun handleEditorCommand(
             }, 250)
         }
         ReaderCommandType.GOTO_SEARCH_MATCH -> {
-            ensureEditorSearch(editor, binding, command)
             editor.postDelayed({
-                if (!isCurrentEditorCommand(binding, command, documentId)) return@postDelayed
+                if (editor.isReleased || !isCurrentEditorCommand(binding, command, documentId)) return@postDelayed
                 val line = (command.line - 1).coerceIn(0, (editor.lineCount - 1).coerceAtLeast(0))
                 val start = command.column.coerceIn(0, editor.text.getColumnCount(line))
                 val end = command.endColumnExclusive.coerceIn(start, editor.text.getColumnCount(line))
@@ -498,22 +506,11 @@ private fun handleEditorCommand(
         }
         ReaderCommandType.SEARCH_FORWARD,
         ReaderCommandType.SEARCH_BACKWARD -> {
-            if (ensureEditorSearch(editor, binding, command)) {
-                editor.postDelayed({
-                    if (!isCurrentEditorCommand(binding, command, documentId)) return@postDelayed
-                    if (command.type == ReaderCommandType.SEARCH_FORWARD) editor.searcher.gotoNext()
-                    else editor.searcher.gotoPrevious()
-                }, 120)
-            } else if (command.type == ReaderCommandType.SEARCH_FORWARD) {
-                editor.searcher.gotoNext()
-            } else {
-                editor.searcher.gotoPrevious()
-            }
+            // 源码搜索由 ReaderViewModel 的 Java Pattern 扫描并派发精确位置；
+            // CodeEditor 不再启动 Sora 搜索线程，避免与文档切换产生竞态。
         }
         ReaderCommandType.CLEAR_SEARCH -> {
             editor.searcher.stopSearch()
-            binding.searchQuery = null
-            binding.searchOptions = null
         }
         ReaderCommandType.MARKDOWN_HEADING -> Unit
     }
@@ -557,7 +554,7 @@ private fun reportReplacementResult(
     onHistoryChanged: (String, EditorHistoryState) -> Unit,
     onReplacementCompleted: (EditorReplacementResult) -> Unit,
 ) {
-    if (!isCurrentEditorCommand(binding, command, documentId)) return
+    if (editor.isReleased || !isCurrentEditorCommand(binding, command, documentId)) return
     reportHistoryState(editor, binding, onHistoryChanged)
     onReplacementCompleted(
         EditorReplacementResult(
@@ -577,31 +574,12 @@ private fun reportHistoryState(
     binding: EditorDocumentBinding,
     onHistoryChanged: (String, EditorHistoryState) -> Unit,
 ) {
+    if (editor.isReleased) return
     val documentId = binding.documentId ?: return
     val state = EditorHistoryState(canUndo = editor.canUndo(), canRedo = editor.canRedo())
     if (binding.historyStates[documentId] == state) return
     binding.historyStates[documentId] = state
     onHistoryChanged(documentId, state)
-}
-
-private fun ensureEditorSearch(
-    editor: CodeEditor,
-    binding: EditorDocumentBinding,
-    command: ReaderCommand,
-): Boolean {
-    if (binding.searchQuery == command.query && binding.searchOptions == command.searchOptions) return false
-    val type = when {
-        command.searchOptions.regularExpression -> EditorSearcher.SearchOptions.TYPE_REGULAR_EXPRESSION
-        command.searchOptions.wholeWord -> EditorSearcher.SearchOptions.TYPE_WHOLE_WORD
-        else -> EditorSearcher.SearchOptions.TYPE_NORMAL
-    }
-    editor.searcher.search(
-        command.query,
-        EditorSearcher.SearchOptions(type, !command.searchOptions.caseSensitive),
-    )
-    binding.searchQuery = command.query
-    binding.searchOptions = command.searchOptions
-    return true
 }
 
 private fun isCurrentEditorCommand(
