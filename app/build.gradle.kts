@@ -21,7 +21,8 @@ android {
             abiFilters += setOf("arm64-v8a", "armeabi-v7a")
         }
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // 自定义 runner：修复 Android 16 测试 APK 类加载器隔离后 Compose 用例的 coroutines-test ServiceLoader 检查失败。 @author long
+        testInstrumentationRunner = "com.lonnnnnng.codereader.ServiceLoaderBridgeRunner"
     }
 
     signingConfigs {
