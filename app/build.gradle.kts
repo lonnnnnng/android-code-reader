@@ -13,15 +13,34 @@ android {
         applicationId = "com.lonnnnnng.codereader"
         minSdk = 24
         targetSdk = 36
-        versionCode = 27
-        versionName = "0.1.26"
+        versionCode = 28
+        versionName = "0.1.27"
+
+        // 真机与 Apple Silicon 模拟器均为 ARM，剔除 x86/x86_64 的 Oniguruma so 以减小体积。 @author long
+        ndk {
+            abiFilters += setOf("arm64-v8a", "armeabi-v7a")
+        }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            // 签名信息走用户级 gradle.properties（codeReaderReleaseStoreFile/StorePassword/KeyAlias/KeyPassword），
+            // 仓库里不落任何密钥；未配置时保持无签名，克隆者可自行提供。 @author long
+            val storeFile = project.findProperty("codeReaderReleaseStoreFile") as? String
+            if (storeFile != null) {
+                this.storeFile = rootProject.file(storeFile)
+                storePassword = project.property("codeReaderReleaseStorePassword") as String
+                keyAlias = project.property("codeReaderReleaseKeyAlias") as String
+                keyPassword = project.property("codeReaderReleaseKeyPassword") as String
+            }
+        }
+    }
+
     buildTypes {
         debug {
-            // 调试包与正式版并存，UI 验收无需卸载正式包或清空用户的最近项目与显示偏好。 @author long
+            // 调试包与正式包并存，UI 验收无需卸载正式包或清空用户的最近项目与显示偏好。 @author long
             applicationIdSuffix = ".debug"
         }
         release {
@@ -31,6 +50,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            if (project.hasProperty("codeReaderReleaseStoreFile")) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
@@ -50,6 +72,11 @@ android {
         buildConfig = true
     }
 
+    androidResources {
+        // 界面文案为中文硬编码，仅保留中英文语言资源，剔除依赖库里的其余 80 余种翻译。 @author long
+        localeFilters += setOf("zh", "en")
+    }
+
     packaging {
         resources {
             excludes += setOf(
@@ -58,6 +85,8 @@ android {
                 "META-INF/LICENSE.txt",
                 "META-INF/NOTICE",
                 "META-INF/NOTICE.txt",
+                // JGit 传递引入 commons-codec，但 Beider-Morse 语音匹配的数据表完全用不到。 @author long
+                "org/apache/commons/codec/language/**",
             )
         }
     }
