@@ -13,8 +13,8 @@ android {
         applicationId = "com.lonnnnnng.codereader"
         minSdk = 24
         targetSdk = 36
-        versionCode = 28
-        versionName = "0.1.27"
+        versionCode = 29
+        versionName = "0.1.28"
 
         // 真机与 Apple Silicon 模拟器均为 ARM，剔除 x86/x86_64 的 Oniguruma so 以减小体积。 @author long
         ndk {
